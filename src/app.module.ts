@@ -32,6 +32,7 @@ import { BankFilesModule } from './modules/bank-files/bank-files.module';
 import { InquiriesModule } from './modules/inquiries/inquiries.module';
 import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 import { ChargingStationsModule } from './modules/charging-stations/charging-stations.module';
+import { WorkshopModule } from './modules/workshop/workshop.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { PdfModule } from './common/pdf/pdf.module';
@@ -90,6 +91,7 @@ import { MongoModule } from './mongo/mongo.module';
     InquiriesModule,
     PlatformSettingsModule,
     ChargingStationsModule,
+    WorkshopModule,
   ],
   controllers: [AppController],
   providers: [

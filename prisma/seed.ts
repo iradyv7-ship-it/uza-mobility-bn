@@ -236,6 +236,49 @@ async function seedPermissionsAndRoleMappings() {
       }),
     );
   }
+
+  // Workshop and lender-portal roles. Checked by name via RolesGuard, not by the
+  // permission-string model above — see src/modules/workshop/*.controller.ts and
+  // src/modules/financing/guards/lender-access.guard.ts. They still need a Role row to
+  // exist before an admin can assign one to a user.
+  await Promise.all(
+    [
+      'MECHANIC',
+      'WORKSHOP_ADMIN',
+      'LENDER_UNGUKA',
+      'LENDER_EQUITY',
+      'LENDER_NCBA',
+    ].map((name) => ensureRole(name, `Seed role: ${name}`)),
+  );
+}
+
+/**
+ * Links each configured lender (src/modules/financing/lenders.registry.ts) to a Bank
+ * row, upserting by name so re-running the seed never creates a duplicate. This is
+ * configuration — which bank corresponds to which lender-portal key — not business data;
+ * no Loan rows are seeded here, because a loan that was never actually disbursed does not
+ * belong in the database even for a demo.
+ */
+async function seedLenderBanks() {
+  const lenders: Array<{ key: string; name: string }> = [
+    { key: 'unguka', name: 'Unguka Bank (LOLC)' },
+    { key: 'equity', name: 'Equity Bank Rwanda' },
+    { key: 'ncba', name: 'NCBA Rwanda' },
+  ];
+
+  for (const lender of lenders) {
+    const existing = await prisma.bank.findFirst({ where: { name: lender.name } });
+    if (existing) {
+      await prisma.bank.update({
+        where: { id: existing.id },
+        data: { lenderKey: lender.key },
+      });
+    } else {
+      await prisma.bank.create({
+        data: { name: lender.name, country: 'Rwanda', lenderKey: lender.key },
+      });
+    }
+  }
 }
 
 function resolveSeedAccount(config: {
@@ -445,6 +488,7 @@ async function main() {
   await seedPricingRules(prisma);
   await seedPlatformSettings(prisma);
   await seedListings(prisma);
+  await seedLenderBanks();
 
   console.log('✅ Prisma seed completed');
 }

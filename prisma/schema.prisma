@@ -107,6 +107,13 @@ model User {
   driverAssignments DriverAssignment[]
   membership        Membership?
 
+  // --- Workshop & lender-facing loan servicing (added wiring the built-but-unmounted
+  // workshop/loan-terms logic to real endpoints — see docs/mobility-audit.md) ---
+  mechanic       Mechanic?
+  jobCards       JobCard[]    @relation("JobCardCustomer")
+  rescueRequests RescueCall[] @relation("RescueRequestedBy")
+  loans          Loan[]       @relation("LoanBorrower")
+
   @@index([uzaId])
   @@map("users")
 }
@@ -1030,6 +1037,8 @@ model FinancingRequest {
   user         User     @relation(fields: [userId], references: [id])
   invoice      Invoice? @relation(fields: [invoiceId], references: [id])
   assignedBank Bank?    @relation(fields: [assignedBankId], references: [id])
+  /// Set once a bank has actually approved and booked this as a real loan — see SECTION 30.
+  loan         Loan?
 
   @@map("financing_requests")
 }
@@ -1043,7 +1052,16 @@ model Bank {
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
 
+  /// The stable key from uza-mobility-fn's `src/config/lenders.ts` (e.g. "unguka"),
+  /// lower-cased. Onboarding a lender there is meant to be a data change, not a code
+  /// change — this is the other half of that: the row a `LENDER_<KEY>` role resolves to.
+  /// Null for a bank that only appears in the admin financing-routing directory and has
+  /// no lender portal of its own yet.
+  lenderKey String? @unique
+
   financingRequests FinancingRequest[]
+  loans             Loan[]
+  collateralEntries CollateralEntry[]
 
   @@map("banks")
 }
@@ -3856,4 +3874,346 @@ model Screening {
   @@index([journeyId, screenedAt])
   @@index([screenedByOrg])
   @@map("screenings")
+}
+
+// ============================================================
+// SECTION 30 — WORKSHOP & LENDER LOAN SERVICING
+//
+// Wires src/modules/workshop/*.ts and src/modules/financing/loan-terms.ts — both fully
+// written and unit-tested already — to real persistence. Neither had a database table
+// before this section, so neither could be reached over HTTP even once a controller
+// existed. Enum values mirror the pure-logic modules exactly; see those files for the
+// reasoning behind each state and gate. Persisted here, not re-derived, so a job card's
+// history survives the process restarting.
+// ============================================================
+
+enum WorkCategory {
+  BRAKES
+  STEERING
+  SUSPENSION
+  TYRES
+  HIGH_VOLTAGE
+  BODY
+  GENERAL
+}
+
+enum JobCardState {
+  BOOKED
+  RECEIVED
+  DIAGNOSING
+  ESTIMATED
+  AWAITING_AUTHORISATION
+  AUTHORISED
+  IN_PROGRESS
+  ADDITIONAL_WORK_FOUND
+  AWAITING_PARTS
+  WORK_COMPLETE
+  QUALITY_CHECK
+  ROAD_TEST
+  READY_FOR_HANDOVER
+  HANDED_OVER
+  CLOSED
+  DECLINED
+  CANCELLED
+}
+
+enum MechanicEngagement {
+  /// UZA employee, in a UZA workshop, at a UZA-set price. See mechanic-pool.ts -- this is
+  /// the arm everything a lender has been promised about a financed vehicle runs through.
+  EMPLOYED
+  /// Independent partner, own premises, own price. UZA certifies the work and takes a
+  /// commission; UZA must never set this person's price (mechanic-pool.ts explains why).
+  CERTIFIED
+}
+
+enum MechanicLevel {
+  APPRENTICE
+  TECHNICIAN
+  SENIOR
+  MASTER
+}
+
+enum RescueStatus {
+  REQUESTED
+  DISPATCHED
+  EN_ROUTE
+  ON_SITE
+  COMPLETED
+  /// dispatch() in rescue-dispatch.ts returned null -- nobody eligible was available. A
+  /// real operational outcome, not an error, and it must be visible on the call itself.
+  NO_RESPONDER_AVAILABLE
+  CANCELLED
+}
+
+/// Mirrors LoanStatus in uza-mobility-fn's src/types/lender/portfolio.ts exactly -- the
+/// two are not allowed to drift, since a status the frontend cannot render is worse than
+/// one it renders as an unknown string.
+enum LoanStatus {
+  PENDING
+  IN_REVIEW
+  APPROVED
+  DECLINED
+  DISBURSED
+  ACTIVE
+  IN_ARREARS
+  CLOSED
+}
+
+enum CollateralEntryKind {
+  PLEDGED
+  RELEASED
+  CALLED_BACK
+}
+
+model Mechanic {
+  id     String  @id @default(cuid())
+  /// The UZA ID, where this person also has one elsewhere in the estate. Nullable: an
+  /// independent certified partner may exist here before ever touching another system.
+  uzaId  String?
+  /// Set only for EMPLOYED technicians who also have a marketplace/staff account. A
+  /// CERTIFIED partner is a business relationship, not necessarily a login.
+  userId String? @unique
+  name   String
+
+  engagement     MechanicEngagement
+  level          MechanicLevel
+  certifiedFor   WorkCategory[]
+  certifiedUntil DateTime
+  /// Set when certification is withdrawn. mechanic-pool.ts: a suspended partner is not
+  /// dispatchable, full stop -- checked ahead of everything else in eligibility.
+  suspendedAt    DateTime?
+  available      Boolean            @default(true)
+  /// 0-5, from completed rescues. Used only to break a near-tie on distance.
+  rating         Float              @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user            User?               @relation(fields: [userId], references: [id])
+  performedJobs   JobCard[]           @relation("JobCardPerformedBy")
+  checkedJobs     JobCard[]           @relation("JobCardCheckedBy")
+  rescueResponses RescueCall[]        @relation("RescueResponder")
+  inspections     VehicleInspection[]
+
+  @@index([engagement, level])
+  @@map("mechanics")
+}
+
+/// One vehicle's visit, end to end. state only ever moves along the edges in
+/// job-card.state.ts's TRANSITIONS map -- the service layer calls assertTransition()
+/// before every write here, so an illegal state is a 4xx, never a row in this table.
+model JobCard {
+  id           String         @id @default(cuid())
+  reference    String         @unique
+  vin          String?
+  vehiclePlate String?
+  state        JobCardState   @default(BOOKED)
+  categories   WorkCategory[]
+
+  /// What the customer was told. The commitment, not an estimate -- workshop-board.ts
+  /// ranks a job OVERDUE the moment this passes, however busy the workshop is.
+  promisedAt   DateTime
+  receivedAt   DateTime?
+  handedOverAt DateTime?
+
+  /// Set when the customer has authorised the CURRENT scope, including any additions.
+  /// Gate 1 in job-card.state.ts refuses IN_PROGRESS without this (rework returning from
+  /// QC/road-test is the documented exception).
+  authorisedAt          DateTime?
+  performedByMechanicId String?
+  /// Must differ from performedByMechanicId -- Gate 2, enforced in the service layer, not
+  /// just here, because a unique constraint cannot express "different from that other row".
+  checkedByMechanicId   String?
+  qualityCheckPassed    Boolean?
+  roadTestCompleted     Boolean?
+
+  /// For workshop-kpi.ts: true when this job needed rework after failing its own QC.
+  failedQualityCheck Boolean @default(false)
+  /// Any high-voltage incident is reportable individually -- workshop-kpi.ts deliberately
+  /// never averages this into a rate.
+  safetyIncidents    Int     @default(0)
+
+  /// needsReauthorisation() in job-card.state.ts compares these two directly.
+  authorisedTotalMinor Int?
+  currentTotalMinor    Int?
+
+  customerUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  performedBy Mechanic? @relation("JobCardPerformedBy", fields: [performedByMechanicId], references: [id])
+  checkedBy   Mechanic? @relation("JobCardCheckedBy", fields: [checkedByMechanicId], references: [id])
+  customer    User?     @relation("JobCardCustomer", fields: [customerUserId], references: [id])
+
+  @@index([state])
+  @@index([promisedAt])
+  @@map("job_cards")
+}
+
+/// A roadside breakdown and the dispatch decision made for it. responderId is null
+/// exactly when status is NO_RESPONDER_AVAILABLE -- dispatch() returning null is a real
+/// answer, not a failure to record.
+model RescueCall {
+  id        String       @id @default(cuid())
+  reference String       @unique
+  category  WorkCategory
+  status    RescueStatus @default(REQUESTED)
+
+  /// Snapshot at dispatch time, from the Responder the pure function chose. Not
+  /// recomputed later -- the reason a particular partner was sent must stay legible even
+  /// after they have moved or a closer one has since joined the pool.
+  distanceKm Float?
+  reason     String?
+
+  responderId     String?
+  /// The referral commission UZA earns on this job -- referralCommission() in
+  /// rescue-dispatch.ts. Null until the job value is known.
+  jobValueMinor   Int?
+  commissionMinor Int?
+
+  requestedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  responder   Mechanic? @relation("RescueResponder", fields: [responderId], references: [id])
+  requestedBy User?     @relation("RescueRequestedBy", fields: [requestedById], references: [id])
+
+  @@index([status])
+  @@map("rescue_calls")
+}
+
+/// A real, disbursed loan against a financed vehicle -- as distinct from FinancingRequest,
+/// which is UZA facilitating a buyer's paperwork before any lender has agreed to anything.
+/// A Loan exists once a bank has actually approved and (usually) disbursed. annualRateBps
+/// is stored for reconciliation only -- loan-terms.ts is explicit that a borrower is never
+/// shown a percentage, so nothing in the lender or buyer UI should render this field raw.
+model Loan {
+  id                 String  @id @default(cuid())
+  reference          String  @unique
+  financingRequestId String? @unique
+  bankId             String
+  borrowerUserId     String
+
+  /// The vehicle's total price. Present so the equity gap -- what the bank asks the buyer
+  /// to contribute, typically 10-20% -- is a number this schema can show, not something
+  /// left to be reconstructed from a WhatsApp thread. Null on loans booked before this
+  /// field existed, or where the price genuinely was never recorded here.
+  vehiclePriceRwf       Int?
+  /// The buyer's own cash toward that price -- NOT the loan principal, which is what the
+  /// bank lends on top of this. UZA Empower's equity top-up is never stored as a separate
+  /// number here: it is the sum of this loan's PLEDGED CollateralEntry rows (see below),
+  /// because a ledger of what actually moved is more trustworthy than a field somebody
+  /// could edit -- the same reasoning CollateralEntry itself already documents.
+  clientContributionRwf Int?
+
+  principalRwf      Int
+  tenorMonths       Int
+  annualRateBps     Int
+  monthlyRwf        Int
+  dailyRwf          Int
+  totalRepayableRwf Int
+  outstandingRwf    Int
+  arrearsRwf        Int        @default(0)
+  status            LoanStatus @default(PENDING)
+  disbursedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bank              Bank                @relation(fields: [bankId], references: [id])
+  borrower          User                @relation("LoanBorrower", fields: [borrowerUserId], references: [id])
+  financingRequest  FinancingRequest?   @relation(fields: [financingRequestId], references: [id])
+  collateralEntries CollateralEntry[]
+  inspections       VehicleInspection[]
+  savingsEntries    LoanSavingsEntry[]
+
+  @@index([bankId, status])
+  @@map("loans")
+}
+
+/// The cash-collateral facility ledger. Entries, never a mutable running total -- the same
+/// reasoning as every other ledger in this schema: a balance is a sum of what happened,
+/// not a number somebody can edit. Currently entitles Unguka only (fn's LENDERS config is
+/// the enforcement surface on read; a bank with no entries here simply sees zeroes).
+model CollateralEntry {
+  id        String              @id @default(cuid())
+  bankId    String
+  kind      CollateralEntryKind
+  amountRwf Int
+  note      String?
+  createdAt DateTime            @default(now())
+
+  /// Set when this entry is UZA Empower's equity top-up for one specific candidate's
+  /// vehicle purchase -- closing the gap between what they saved and what the bank asks
+  /// for -- rather than a bank-wide facility deposit. Null entries (the original Unguka
+  /// facility capital, for instance) still sum correctly at the bank level; this only adds
+  /// the ability to also sum correctly at the loan level.
+  loanId String?
+
+  bank Bank  @relation(fields: [bankId], references: [id])
+  loan Loan? @relation(fields: [loanId], references: [id])
+
+  @@index([bankId])
+  @@index([loanId])
+  @@map("collateral_entries")
+}
+
+enum VehicleCondition {
+  GOOD
+  FAIR
+  POOR
+  URGENT_ATTENTION
+}
+
+/// One of the three things UZA Empower gives a lender in exchange for financing at better
+/// terms than the vehicle alone would justify -- see docs discussion "UZA Empower closes
+/// the equity gap, not the whole risk." A monthly report from a certified mechanic (see
+/// Mechanic, job-card.state.ts's HV-certification gate applies the same way here) on the
+/// actual condition of the specific vehicle securing a specific loan. This is the
+/// collateral-ASSET risk signal; LoanSavingsEntry below is the ongoing-BEHAVIOUR signal.
+model VehicleInspection {
+  id               String           @id @default(cuid())
+  loanId           String
+  mechanicId       String
+  inspectedAt      DateTime         @default(now())
+  mileageKm        Int?
+  batteryHealthPct Int?
+  condition        VehicleCondition
+  notes            String?
+  createdAt        DateTime         @default(now())
+
+  loan     Loan     @relation(fields: [loanId], references: [id])
+  mechanic Mechanic @relation(fields: [mechanicId], references: [id])
+
+  @@index([loanId, inspectedAt])
+  @@map("vehicle_inspections")
+}
+
+/// A single day's deposit toward a loan's required daily figure (Loan.dailyRwf --
+/// loan-terms.ts: "a borrower is never shown a percentage... they are told what they pay
+/// per day"). requiredDailyRwf is snapshotted per row rather than read live off the loan,
+/// the same reasoning as the tariff-rate snapshot elsewhere in this estate: if the loan's
+/// terms are ever restructured, a historical day's record must still say what was actually
+/// required of it that day, not what is required now.
+///
+/// The upside this exists to capture: a candidate depositing consistently above
+/// requiredDailyRwf is a live signal -- not just that they can service this loan, but that
+/// they may support more (a bigger vehicle, better terms, less collateral next time). That
+/// comparison is exactly `depositedRwf - requiredDailyRwf`, summed; deliberately not stored
+/// as a running balance for the same not-a-mutable-total reason as every ledger here.
+model LoanSavingsEntry {
+  id               String   @id @default(cuid())
+  loanId           String
+  date             DateTime @db.Date
+  depositedRwf     Int
+  requiredDailyRwf Int
+  createdAt        DateTime @default(now())
+
+  loan Loan @relation(fields: [loanId], references: [id])
+
+  @@unique([loanId, date])
+  @@index([loanId, date])
+  @@map("loan_savings_entries")
 }

@@ -11,7 +11,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AssignBankDto } from './dto/assign-bank.dto';
 import { CreateBankDto } from './dto/create-bank.dto';
+import { CreateCollateralEntryDto } from './dto/create-collateral-entry.dto';
 import { CreateFinancingRequestDto } from './dto/create-financing-request.dto';
+import { CreateLoanSavingsEntryDto } from './dto/create-loan-savings-entry.dto';
 import { FilterFinancingDto } from './dto/filter-financing.dto';
 import { RecordFinancingOutcomeDto } from './dto/record-financing-outcome.dto';
 
@@ -299,6 +301,102 @@ export class FinancingService {
     });
 
     return bank;
+  }
+
+  /**
+   * Record a movement in a bank's collateral ledger — a bank-wide facility deposit when
+   * `dto.loanId` is unset, or UZA Empower's equity top-up for one specific candidate's
+   * vehicle purchase when it is set. Never a mutable balance: see CollateralEntry's own
+   * doc comment. `Loan.clientContributionRwf`/`vehiclePriceRwf` are what the bank asked
+   * for and what the buyer brought; the sum of this loan's PLEDGED rows is what UZA
+   * closed the gap with — computed from this ledger, not stored again as its own field.
+   */
+  async createCollateralEntry(
+    bankId: string,
+    dto: CreateCollateralEntryDto,
+    adminUserId: string,
+    auditContext: RequestAuditContext = {},
+  ) {
+    const bank = await this.prisma.bank.findUnique({ where: { id: bankId } });
+    if (!bank) throw new NotFoundException('Bank not found');
+
+    if (dto.loanId) {
+      const loan = await this.prisma.loan.findUnique({
+        where: { id: dto.loanId },
+      });
+      if (!loan) throw new NotFoundException('Loan not found');
+      if (loan.bankId !== bankId) {
+        throw new BadRequestException('Loan does not belong to this bank');
+      }
+    }
+
+    const entry = await this.prisma.collateralEntry.create({
+      data: {
+        bankId,
+        kind: dto.kind,
+        amountRwf: dto.amountRwf,
+        loanId: dto.loanId,
+        note: dto.note,
+      },
+    });
+
+    await this.auditService.record({
+      userId: adminUserId,
+      action: 'collateral:recorded',
+      entity: 'CollateralEntry',
+      entityId: entry.id,
+      metadata: {
+        bankId,
+        loanId: dto.loanId,
+        kind: dto.kind,
+        amountRwf: dto.amountRwf,
+        email: auditContext.actorEmail,
+      },
+      ipAddress: auditContext.ipAddress,
+      userAgent: auditContext.userAgent,
+    });
+
+    return entry;
+  }
+
+  /**
+   * Record one day's deposit against a loan's required daily figure — the ongoing-
+   * behaviour signal UZA Empower gives a lender alongside VehicleInspection's
+   * collateral-asset signal. `requiredDailyRwf` is snapshotted from `Loan.dailyRwf` at
+   * the moment of recording, never read live later, so a loan restructured afterwards
+   * cannot silently rewrite what was actually required of a past day.
+   */
+  async recordLoanSavings(
+    loanId: string,
+    dto: CreateLoanSavingsEntryDto,
+    adminUserId: string,
+    auditContext: RequestAuditContext = {},
+  ) {
+    const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
+    if (!loan) throw new NotFoundException('Loan not found');
+
+    const entry = await this.prisma.loanSavingsEntry.upsert({
+      where: { loanId_date: { loanId, date: new Date(dto.date) } },
+      update: { depositedRwf: dto.depositedRwf },
+      create: {
+        loanId,
+        date: new Date(dto.date),
+        depositedRwf: dto.depositedRwf,
+        requiredDailyRwf: loan.dailyRwf,
+      },
+    });
+
+    await this.auditService.record({
+      userId: adminUserId,
+      action: 'loan-savings:recorded',
+      entity: 'LoanSavingsEntry',
+      entityId: entry.id,
+      metadata: { loanId, date: dto.date, depositedRwf: dto.depositedRwf },
+      ipAddress: auditContext.ipAddress,
+      userAgent: auditContext.userAgent,
+    });
+
+    return entry;
   }
 
   private async getRequestOrThrow(id: string) {
