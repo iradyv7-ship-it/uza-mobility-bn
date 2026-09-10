@@ -1869,6 +1869,8 @@ model Cohort {
 
   @@index([track, status])
   @@map("cohorts")
+
+  fundApplications FundApplication[]
 }
 
 model Enrolment {
@@ -3726,6 +3728,163 @@ enum JourneyStage {
 }
 
 /// One person's passage through the programme. One row per person per cohort attempt.
+/// A taxi driver's application to the UZA Empower fund.
+///
+/// This is the FORM. `CandidateJourney` is what happens afterwards — the two are separate
+/// because an application is a signed statement made at one moment, and a journey is a
+/// thing that changes. Editing an application after signature would rewrite what somebody
+/// put their name to, so the answers are written once and corrections are new rows.
+///
+/// ── WHAT THE FIELDS ARE FOR ───────────────────────────────────────────────────────────
+///
+/// Every question maps to something. Most map to a `GapKind`, so screening is derived from
+/// the answers rather than typed in again by staff — see `screenApplication()`. A question
+/// that maps to nothing was not asked.
+///
+/// ── PERSONAL DATA ─────────────────────────────────────────────────────────────────────
+///
+/// National ID and phone are sensitive under Law N° 058/2021. They are stored because the
+/// bank requires identity verification, and they are NEVER included in any lender-facing
+/// payload — a lender receives a UZA ID and a display name. See `lender-access.ts`.
+model FundApplication {
+  id  String @id @default(cuid())
+  ref String @unique // UZM-APP-2026-000001
+
+  /// Set once the applicant is resolved to a person. Null while the form is a draft.
+  uzaId String?
+
+  status FundApplicationStatus @default(DRAFT)
+
+  // --- Identity -----------------------------------------------------------------
+  fullName       String
+  nationalId     String
+  dateOfBirth    DateTime? @db.Date
+  gender         Gender?
+  phone          String
+  alternatePhone String?
+  district       String
+  sector         String?
+  cell           String?
+
+  // --- Driving ------------------------------------------------------------------
+  /// Maps to GapKind.LICENCE_OR_PERMIT when absent or expired.
+  licenceNumber   String?
+  licenceCategory String?
+  licenceExpiry   DateTime? @db.Date
+  yearsDriving    Int?
+  /// Owns / rents / drives for an employer. Decides whether a trade-in is possible and
+  /// whether the applicant currently pays a daily rental they would stop paying.
+  currentVehicle  VehicleRelationship?
+  currentPlate    String?
+  /// Maps to GapKind.LICENCE_OR_PERMIT and to the association referral route.
+  associationName String?
+
+  // --- Income, in whole RWF -----------------------------------------------------
+  /// Maps to GapKind.NO_VERIFIABLE_INCOME. Self-declared at this stage and labelled as
+  /// such everywhere it is shown — it becomes verified only once the wallet has a record.
+  averageDailyTakingsRwf Int?
+  workingDaysPerWeek     Int?
+  /// What renting currently costs them. The number that makes ownership comparable.
+  currentDailyRentalRwf  Int?
+  otherMonthlyIncomeRwf  Int?
+  dependants             Int?
+
+  // --- Savings and banking ------------------------------------------------------
+  /// Maps to GapKind.CONTRIBUTION_SHORT once a product's required contribution is known.
+  currentSavingsRwf     Int?
+  savingsHeldAt         SavingsLocation?
+  monthlySavingCapacityRwf Int?
+  /// Maps to GapKind.NO_BANK_FARE_SETTLEMENT.
+  hasBankAccount        Boolean @default(false)
+  bankName              String?
+  mobileMoneyNumber     String?
+  /// Maps to GapKind.THIN_CREDIT_FILE.
+  hasBorrowedBefore     Boolean @default(false)
+  currentlyRepayingLoan Boolean @default(false)
+  currentLoanDetail     String?
+
+  // --- What they are applying for ------------------------------------------------
+  cohortId          String?
+  preferredTenorMonths Int?
+  depositAvailableRwf  Int?
+  /// Which lender the applicant is being put forward to, if already decided.
+  preferredLenderKey   String?
+
+  // --- Declaration and consent ----------------------------------------------------
+  /// The applicant states the answers are true. Without this the form is not submitted.
+  declarationAccepted Boolean @default(false)
+  /// Consent to share the file with the named lender. Separate from the declaration on
+  /// purpose: agreeing your answers are true is not agreeing a bank may read them.
+  lenderConsentGiven  Boolean @default(false)
+  /// Consent to the training and inspection record being kept. Also separate.
+  dataProcessingConsentGiven Boolean @default(false)
+
+  /// How the form was completed. `ASSISTED` means a staff member read it aloud and
+  /// recorded the answers — which is a different evidentiary position to self-service and
+  /// must be visible as such.
+  completionMode FormCompletionMode @default(SELF_SERVICE)
+  assistedByRef  String?
+
+  /// Signature: who signed, when, and where the image lives. `signatureRef` points at
+  /// GridFS; the image itself never goes in Postgres.
+  signedAt      DateTime?
+  signatureRef  String?
+  witnessName   String?
+  witnessRef    String?
+
+  submittedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cohort Cohort? @relation(fields: [cohortId], references: [id])
+
+  /// Consents signed on this application, before a UZA ID exists to hang them on.
+  lenderConsents LenderConsent[]
+
+  @@index([status])
+  @@index([uzaId])
+  @@index([cohortId])
+  @@index([nationalId])
+  @@map("fund_applications")
+}
+
+enum FundApplicationStatus {
+  DRAFT
+  SUBMITTED
+  SCREENING
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+}
+
+enum VehicleRelationship {
+  OWNS
+  RENTS
+  DRIVES_FOR_EMPLOYER
+  NONE
+}
+
+enum SavingsLocation {
+  BANK
+  SACCO
+  MOBILE_MONEY
+  CASH_AT_HOME
+  NONE
+}
+
+enum FormCompletionMode {
+  SELF_SERVICE
+  /// Read aloud and recorded by a staff member, in Kinyarwanda. The programme is designed
+  /// for oral-first delivery so that formal schooling is not a barrier to participation.
+  ASSISTED
+}
+
+enum Gender {
+  FEMALE
+  MALE
+  PREFER_NOT_TO_SAY
+}
+
 model CandidateJourney {
   id    String       @id @default(cuid())
   ref   String       @unique // e.g. UZM-CJ-2026-000042
@@ -4137,6 +4296,66 @@ model Loan {
 /// reasoning as every other ledger in this schema: a balance is a sum of what happened,
 /// not a number somebody can edit. Currently entitles Unguka only (fn's LENDERS config is
 /// the enforcement surface on read; a bank with no entries here simply sees zeroes).
+/// A borrower's consent for ONE lender to see their file.
+///
+/// Consent under Law N° 058/2021 is specific, affirmative and revocable. Agreeing that
+/// Unguka may see a file is NOT agreeing that NCBA may, so this is keyed on the pair and
+/// there is deliberately no "consent to all lenders" shortcut.
+///
+/// Withdrawal sets `withdrawnAt` rather than deleting the row. A complaint or an audit
+/// asks exactly two questions — did consent exist, and when did it end — and a deleted
+/// row cannot answer either. The row is the evidence that UZA behaved correctly.
+///
+/// `source` records HOW consent was captured, because "the driver agreed" is not a
+/// defence on its own. In-person on a signed form, in the app, or by a staff member
+/// recording a conversation are three different evidentiary positions.
+model LenderConsent {
+  id String @id @default(cuid())
+
+  /// The borrower, by UZA ID — the same identifier the lender sees. Not the internal
+  /// user id, so a consent record survives a user row being merged or re-keyed.
+  ///
+  /// NULL until the applicant becomes a participant. An applicant signing at intake does
+  /// not have a UZA ID yet, and consent must still be recorded at the moment it is given:
+  /// it is evidence of something that happened in front of a witness, and it cannot be
+  /// conditional on an identifier that is issued later. `fundApplicationId` anchors those
+  /// rows until a UZA ID exists to reconcile them onto.
+  uzaId String?
+
+  /// The application the consent was signed on, where there is one.
+  fundApplicationId String?
+  fundApplication   FundApplication? @relation(fields: [fundApplicationId], references: [id], onDelete: SetNull)
+
+  /// Normalised lender key, e.g. "unguka", "ncba". Matches Bank.lenderKey.
+  lenderKey String
+
+  grantedAt   DateTime  @default(now())
+  withdrawnAt DateTime?
+
+  /// How it was captured, and by whom if a staff member recorded it.
+  source        ConsentSource @default(IN_APP)
+  capturedByRef String?
+  note          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One live consent per borrower per lender, and per application per lender for the
+  /// pre-UZA-ID case. Postgres treats NULLs as distinct in a unique index, so unassigned
+  /// applications do not collide with each other on the first constraint.
+  @@unique([uzaId, lenderKey])
+  @@unique([fundApplicationId, lenderKey])
+  @@index([lenderKey])
+  @@index([fundApplicationId])
+  @@map("lender_consents")
+}
+
+enum ConsentSource {
+  IN_APP
+  SIGNED_FORM
+  STAFF_RECORDED
+}
+
 model CollateralEntry {
   id        String              @id @default(cuid())
   bankId    String

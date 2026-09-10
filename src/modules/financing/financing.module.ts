@@ -6,6 +6,8 @@ import { AdminFinancingController } from './admin-financing.controller';
 import { AdminLoansController } from './admin-loans.controller';
 import { FinancingController } from './financing.controller';
 import { FinancingService } from './financing.service';
+import { FundApplicationController } from './fund-application.controller';
+import { FundApplicationService } from './fund-application.service';
 import { LenderController } from './lender.controller';
 import { LenderService } from './lender.service';
 
@@ -16,9 +18,10 @@ import { LenderService } from './lender.service';
     AdminFinancingController,
     AdminBanksController,
     AdminLoansController,
+    FundApplicationController,
     LenderController,
   ],
-  providers: [FinancingService, LenderService],
-  exports: [FinancingService, LenderService],
+  providers: [FinancingService, LenderService, FundApplicationService],
+  exports: [FinancingService, LenderService, FundApplicationService],
 })
 export class FinancingModule {}
