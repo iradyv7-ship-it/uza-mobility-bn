@@ -4,35 +4,59 @@ import { BadRequestException } from '@nestjs/common';
  * Prepayment discount: the client pays for a vehicle still in China, and the earlier and
  * larger the payment, the larger the discount.
  *
- *   100% paid -> 10.0% off        50% paid -> 5.0% off
- *    75% paid ->  7.5% off        40% paid -> 4.0% off
+ *   100% paid -> 5.0% off        75% paid -> 3.0% off        50% paid -> 1.5% off
  *
- * One rule rather than a table of tiers: **discount = prepayment ÷ 10**, linear, with a
- * floor below which nothing is earned. A table invites a client at 74% to ask why they get
- * the same as one at 51%, and invites staff to add tiers until nobody can say what the
- * policy is.
+ * WHY A TABLE AND NOT A FORMULA
+ *
+ * This used to be `discount = prepayment ÷ 10`, linear, on the argument that a table
+ * invites a client at 74% to ask why they get the same as one at 51%.
+ *
+ * The ladder set on 1 September 2026 is deliberately NOT linear, so the formula could not
+ * survive. Read the marginal rate on each additional slice of prepayment:
+ *
+ *   0  -> 50%   : 1.5% earned on 50% more paid   = 3% on the extra slice
+ *   50 -> 75%   : 1.5% earned on 25% more paid   = 6% on the extra slice
+ *   75 -> 100%  : 2.0% earned on 25% more paid   = 8% on the extra slice
+ *
+ * The reward accelerates with commitment. That is the point: half-measures earn least per
+ * franc, and going all the way earns most. A linear rule cannot express that, and the
+ * client at 74% now has a real answer — pay one more percent and the rate on everything
+ * above 75 nearly doubles.
  *
  * WHAT THIS COSTS UZA, because a discount does not look like borrowing and is
  *
- * Paying 100% up front against delivery roughly four months later earns 10%. That is
- * UZA borrowing the vehicle's price for a third of a year at 10%, or about **30% a year**.
- * That is expensive working capital, and the number should be compared against what a bank
- * would charge before the ladder is treated as free money. It may still be worth it — it
- * removes cancellation risk, credit risk and the financing cost of the order — but it is a
- * financing decision, not a marketing one.
+ * Paying 100% up front against delivery roughly four months later earns 5%. That is UZA
+ * borrowing the vehicle's price for a third of a year at 5%, or about **15% a year** —
+ * which is cheaper than commercial working capital in Rwanda and materially cheaper than
+ * the previous ladder's ~30%. It also removes cancellation risk, credit risk and the
+ * financing cost of the order.
  *
- * `annualisedCostPercent()` exists so that trade-off is visible in the same place as the
+ * `annualisedCostPercent()` keeps that trade-off visible in the same place as the
  * discount, rather than discovered later in a margin review.
  */
 
 /** Below this, no discount is earned. Set here so the policy has exactly one home. */
-export const MIN_PREPAYMENT_PERCENT = 40;
+export const MIN_PREPAYMENT_PERCENT = 50;
 
-/** discount = prepayment ÷ DIVISOR. 100 -> 10, 75 -> 7.5, 40 -> 4. */
-const DIVISOR = 10;
+/**
+ * The ladder, highest threshold first.
+ *
+ * Read as "at least this much prepaid earns this much off". A client paying 60% earns the
+ * 50% tier — tiers are floors, not exact matches, because a client who pays MORE must
+ * never earn LESS, and interpolating between tiers would be clever, unpredictable and
+ * impossible to quote over a phone.
+ */
+export const PREPAYMENT_LADDER: readonly {
+  minPrepaymentPercent: number;
+  discountPercent: number;
+}[] = [
+  { minPrepaymentPercent: 100, discountPercent: 5 },
+  { minPrepaymentPercent: 75, discountPercent: 3 },
+  { minPrepaymentPercent: 50, discountPercent: 1.5 },
+];
 
 /** The most UZA will ever give, whatever a future rule change does. A hard stop. */
-export const MAX_DISCOUNT_PERCENT = 10;
+export const MAX_DISCOUNT_PERCENT = 5;
 
 export interface PrepaymentQuote {
   prepaymentPercent: number;
@@ -53,8 +77,15 @@ export interface PrepaymentQuote {
  */
 export function discountPercentFor(prepaymentPercent: number): number {
   assertPercent(prepaymentPercent, 'prepaymentPercent');
-  if (prepaymentPercent < MIN_PREPAYMENT_PERCENT) return 0;
-  return Math.min(prepaymentPercent / DIVISOR, MAX_DISCOUNT_PERCENT);
+
+  // Highest threshold the client clears. The ladder is ordered highest-first, so the
+  // first match is the best one they qualify for.
+  const tier = PREPAYMENT_LADDER.find(
+    (t) => prepaymentPercent >= t.minPrepaymentPercent,
+  );
+  if (!tier) return 0;
+
+  return Math.min(tier.discountPercent, MAX_DISCOUNT_PERCENT);
 }
 
 /**
@@ -99,7 +130,7 @@ export function quotePrepayment(
 /**
  * What the discount costs UZA as an annual rate, given how long the money is held.
  *
- * Not decoration. A 10% discount for a vehicle delivered in four months is ~30% a year, and
+ * Not decoration. A 5% discount for a vehicle delivered in four months is ~15% a year, and
  * that belongs next to the discount whenever anyone is deciding whether to widen the ladder.
  */
 export function annualisedCostPercent(
