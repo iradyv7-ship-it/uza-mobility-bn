@@ -34,4 +34,5 @@ export enum UploadFolder {
   PROFILES = 'profiles',
   QUOTES = 'quotes',
   GENERAL = 'general',
+  BANK_PACKAGES = 'bank-packages',
 }

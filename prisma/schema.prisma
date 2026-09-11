@@ -3534,13 +3534,49 @@ model BankFile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items  BankFileItem[]
-  events BankFileEvent[]
+  items    BankFileItem[]
+  events   BankFileEvent[]
+  packages BankPackage[]
 
   @@index([status])
   @@index([uzaId])
   @@index([lenderName, status])
   @@map("bank_files")
+}
+
+/// One published, immutable copy of the bank-ready PDF for one file.
+///
+/// A lender must be able to be shown, months later, exactly the document that was
+/// published on a given day — not a re-render from whatever the database says now. So
+/// this is append-only: `publish()` never updates a row here, it inserts the next
+/// version. `itemsSnapshot` freezes the checklist as it stood at publish time for the
+/// same reason `BankFile`'s own commercial fields are copied rather than referenced (see
+/// its own doc comment above) — the source rows can keep moving after this is signed.
+model BankPackage {
+  id     String @id @default(cuid())
+  ref    String @unique // e.g. UZM-BF-2026-000451-v3
+  bankFileId String
+  version Int
+
+  /// Where the rendered PDF lives — StorageService's public URL, same convention as
+  /// every other generated document in this codebase (see FleetPdfStorageService).
+  storageUrl     String
+  checksumSha256 String
+  byteSize       Int
+
+  /// Each item's code/label/source/present/documentUrl at the moment this version was
+  /// published, so a dispute six months later can be settled against what was actually
+  /// sent rather than against today's row.
+  itemsSnapshot Json
+
+  publishedById String?
+  publishedAt   DateTime @default(now())
+
+  file BankFile @relation(fields: [bankFileId], references: [id], onDelete: Cascade)
+
+  @@unique([bankFileId, version])
+  @@index([bankFileId])
+  @@map("bank_packages")
 }
 
 /// One of the eleven, in one file.
@@ -3595,8 +3631,8 @@ model BankFileEvent {
   bankFileId String
   at         DateTime @default(now())
   actorId    String?
-  /// opened, item_added, item_verified, marked_ready, submitted, queried, resubmitted,
-  /// approved, declined, withdrawn
+  /// opened, item_added, item_verified, marked_ready, package_published, submitted,
+  /// queried, resubmitted, approved, declined, withdrawn
   kind       String
   detail     String?
 
