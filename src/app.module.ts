@@ -38,11 +38,15 @@ import { UsersModule } from './users/users.module';
 import { PdfModule } from './common/pdf/pdf.module';
 import { UploadsModule } from './common/uploads/uploads.module';
 import { MongoModule } from './mongo/mongo.module';
+import { validateEnv } from './config/env.validation';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      // Refuse to start with a configuration that would send a real user to localhost.
+      // See src/config/env.validation.ts for each rule and the failure it prevents.
+      validate: validateEnv,
     }),
     // Rate limiting. Two named windows rather than one, because the right limit for
     // browsing listings is far too generous for a login form: 100 attempts a minute is
