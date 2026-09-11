@@ -1,6 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { AuditService } from '../../common/audit/audit.service';
+import type { RequestAuditContext } from '../../common/audit/request-context.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkshopService } from '../workshop/workshop.service';
+import type { AskInfoRequestDto } from './dto/ask-info-request.dto';
+import type { CreateCreditNoteDto } from './dto/create-credit-note.dto';
+import type { RecordLenderDecisionDto } from './dto/record-lender-decision.dto';
+import {
+  assertDecisionAllowed,
+  loanStatusForDecision,
+} from './lender-decision.rules';
 import type { LenderConfig } from './lenders.registry';
 import { summarizeSavings } from './loan-savings.util';
 
@@ -21,6 +30,7 @@ export class LenderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly workshopService: WorkshopService,
+    private readonly auditService: AuditService,
   ) {}
 
   private async resolveBankId(lender: LenderConfig): Promise<string | null> {
@@ -267,5 +277,166 @@ export class LenderService {
         requiredDailyRwf: r.requiredDailyRwf,
       })),
     );
+  }
+
+  /**
+   * A richer view of `applications()` for the bank's working queue: the same pending /
+   * in-review loans, plus whether each one has an information request still awaiting a
+   * UZA answer and its latest recorded decision, if any. Parallels `applications()`
+   * rather than replacing it — a consumer already calling that endpoint keeps working.
+   */
+  async queue(lender: LenderConfig) {
+    const bankId = await this.resolveBankId(lender);
+    if (!bankId) return [];
+
+    const rows = await this.prisma.loan.findMany({
+      where: { bankId, status: { in: ['PENDING', 'IN_REVIEW'] } },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        borrower: { select: { firstName: true, lastName: true } },
+        infoRequests: {
+          where: { answeredAt: null },
+          select: { id: true, question: true, askedAt: true },
+          orderBy: { askedAt: 'desc' },
+          take: 1,
+        },
+        lenderDecisions: {
+          select: { outcome: true, decidedAt: true },
+          orderBy: { decidedAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    return rows.map((r) => ({
+      id: r.id,
+      reference: r.reference,
+      applicantName: `${r.borrower.firstName} ${r.borrower.lastName}`.trim(),
+      amount: r.principalRwf,
+      status: r.status,
+      createdAt: r.createdAt.toISOString(),
+      openInfoRequest: r.infoRequests[0] ?? null,
+      latestDecision: r.lenderDecisions[0] ?? null,
+    }));
+  }
+
+  /**
+   * Record a credit decision — the structured replacement for silently flipping
+   * `Loan.status`. Only moves the loan's own status for APPROVED/REJECTED, and only from
+   * a state the bank is actually allowed to decide on; CONDITIONAL leaves status alone
+   * (still IN_REVIEW — a conditional approval is not yet a disbursement decision).
+   */
+  async recordDecision(
+    lender: LenderConfig,
+    loanId: string,
+    dto: RecordLenderDecisionDto,
+    actorUserId: string,
+    auditContext: RequestAuditContext = {},
+  ) {
+    const loan = await this.requireOwnLoan(lender, loanId);
+    assertDecisionAllowed(loan.status, dto);
+
+    const nextStatus = loanStatusForDecision(dto.outcome);
+
+    const decision = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.lenderDecision.create({
+        data: {
+          loanId,
+          outcome: dto.outcome,
+          reasons: dto.reasons,
+          conditions: dto.conditions ?? null,
+          decidedByRef: actorUserId,
+        },
+      });
+
+      if (nextStatus) {
+        await tx.loan.update({
+          where: { id: loanId },
+          data: { status: nextStatus },
+        });
+      }
+
+      return created;
+    });
+
+    await this.auditService.record({
+      userId: actorUserId,
+      action: `lender-decision:${dto.outcome.toLowerCase()}`,
+      entity: 'LenderDecision',
+      entityId: decision.id,
+      metadata: {
+        loanId,
+        lenderKey: lender.key,
+        email: auditContext.actorEmail,
+      },
+      ipAddress: auditContext.ipAddress,
+      userAgent: auditContext.userAgent,
+    });
+
+    return decision;
+  }
+
+  async listDecisions(lender: LenderConfig, loanId: string) {
+    await this.requireOwnLoan(lender, loanId);
+    return this.prisma.lenderDecision.findMany({
+      where: { loanId },
+      orderBy: { decidedAt: 'desc' },
+    });
+  }
+
+  /** A bank asking UZA a question about one of its own loans. */
+  async askInfoRequest(
+    lender: LenderConfig,
+    loanId: string,
+    dto: AskInfoRequestDto,
+    actorUserId: string,
+  ) {
+    await this.requireOwnLoan(lender, loanId);
+    return this.prisma.infoRequest.create({
+      data: {
+        loanId,
+        question: dto.question,
+        askedByRef: actorUserId,
+      },
+    });
+  }
+
+  /** The bank's own view of its question-and-answer thread on one loan. */
+  async listInfoRequests(lender: LenderConfig, loanId: string) {
+    await this.requireOwnLoan(lender, loanId);
+    return this.prisma.infoRequest.findMany({
+      where: { loanId },
+      orderBy: { askedAt: 'desc' },
+    });
+  }
+
+  /**
+   * A bank-internal underwriting note. Deliberately the only place in this codebase that
+   * writes `prisma.creditNote` from the lender side — see the model's own doc comment on
+   * why nothing staff-facing may ever touch this table.
+   */
+  async addCreditNote(
+    lender: LenderConfig,
+    loanId: string,
+    dto: CreateCreditNoteDto,
+    actorUserId: string,
+  ) {
+    await this.requireOwnLoan(lender, loanId);
+    return this.prisma.creditNote.create({
+      data: {
+        loanId,
+        note: dto.note,
+        authorRef: actorUserId,
+      },
+    });
+  }
+
+  /** The bank's own credit notes on one loan. Never exposed to a UZA-staff caller. */
+  async listCreditNotes(lender: LenderConfig, loanId: string) {
+    await this.requireOwnLoan(lender, loanId);
+    return this.prisma.creditNote.findMany({
+      where: { loanId },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 }

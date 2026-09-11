@@ -4364,9 +4364,104 @@ model Loan {
   collateralEntries CollateralEntry[]
   inspections       VehicleInspection[]
   savingsEntries    LoanSavingsEntry[]
+  /// The structured back-and-forth trail once a loan is with a bank — see LenderDecision,
+  /// InfoRequest and CreditNote below. Anchored here rather than on FinancingRequest
+  /// because `Loan` (scoped by bankId) is what `LenderService`/`LenderController` already
+  /// operate on for everything else a bank does with its own book.
+  lenderDecisions   LenderDecision[]
+  infoRequests      InfoRequest[]
+  creditNotes       CreditNote[]
 
   @@index([bankId, status])
   @@map("loans")
+}
+
+enum LenderDecisionOutcome {
+  APPROVED
+  REJECTED
+  CONDITIONAL
+}
+
+/// One credit decision a bank recorded on one of its own loans.
+///
+/// Previously this was one enum field (`Loan.status` flipping straight to APPROVED or
+/// DECLINED) with no trail of why, no room for a conditional approval's conditions, and
+/// no history if a decision was later revisited. A row per decision, never an update —
+/// `Loan.status` still carries the current summary for everything that reads it today,
+/// but the reasoning behind it is no longer thrown away.
+model LenderDecision {
+  id         String                @id @default(cuid())
+  loanId     String
+  outcome    LenderDecisionOutcome
+  reasons    String
+  /// Set for CONDITIONAL only — enforced in LenderService, not the schema, matching how
+  /// this codebase already prefers a service-level check over a CHECK constraint for a
+  /// business rule (e.g. resolveAnnualRateBps refusing an uncovered tenor in code, not SQL).
+  conditions String?
+
+  /// The lender-side user who recorded this — a loose reference, same convention as
+  /// `BankFileEvent.actorId` and `LenderConsent.capturedByRef` elsewhere in this schema,
+  /// not a hard FK, since the acting user's own row may later be deactivated.
+  decidedByRef String?
+  decidedAt    DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([loanId, decidedAt])
+  @@map("lender_decisions")
+}
+
+/// A real question-and-answer thread between a bank and UZA staff about one loan.
+///
+/// Two-sided by design: `askedByRef` is always a bank user (see LenderController's own
+/// guard), `answeredByRef` is always UZA staff (see AdminLoansController). Unlike
+/// CreditNote below, both sides may read this — an information request is exactly the
+/// part of the relationship that is meant to be visible to both.
+model InfoRequest {
+  id       String  @id @default(cuid())
+  loanId   String
+  question String
+  answer   String?
+
+  askedByRef    String?
+  answeredByRef String?
+  askedAt       DateTime  @default(now())
+  answeredAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([loanId, askedAt])
+  @@map("info_requests")
+}
+
+/// Bank-internal underwriting notes. UZA staff must NEVER be able to read these.
+///
+/// Deliberately NOT modelled with any field UZA's own staff-facing queries could
+/// accidentally select — the confidentiality here is structural, not a filter: no
+/// `FinancingService`/`AdminLoansController` method ever touches `prisma.creditNote` at
+/// all, so there is no staff-reachable code path to redact in the first place. The only
+/// code that ever reads or writes this table lives behind `LenderAccessGuard` in
+/// `LenderService` — the exact mechanism that already keeps one lender from seeing
+/// another lender's borrowers (see `lender-access.ts`'s "THE FOUR RULES"). SUPER_ADMIN
+/// can still reach it, same as every other route behind that guard, for the same reason
+/// documented there ("somebody has to be able to see that a portal is broken").
+model CreditNote {
+  id     String @id @default(cuid())
+  loanId String
+  note   String
+
+  /// The bank user who wrote it — loose reference, same convention as `decidedByRef`.
+  authorRef String?
+  createdAt DateTime @default(now())
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([loanId, createdAt])
+  @@map("credit_notes")
 }
 
 /// The cash-collateral facility ledger. Entries, never a mutable running total -- the same

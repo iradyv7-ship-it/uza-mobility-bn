@@ -14,6 +14,7 @@ import { CreateBankDto } from './dto/create-bank.dto';
 import { CreateCollateralEntryDto } from './dto/create-collateral-entry.dto';
 import { CreateFinancingRequestDto } from './dto/create-financing-request.dto';
 import { CreateLoanSavingsEntryDto } from './dto/create-loan-savings-entry.dto';
+import { AnswerInfoRequestDto } from './dto/answer-info-request.dto';
 import { FilterFinancingDto } from './dto/filter-financing.dto';
 import { RecordFinancingOutcomeDto } from './dto/record-financing-outcome.dto';
 
@@ -397,6 +398,73 @@ export class FinancingService {
     });
 
     return entry;
+  }
+
+  /**
+   * Every decision a bank has recorded on this loan — UZA staff's read-only view of the
+   * same trail `LenderService.listDecisions` shows the bank. Not confidential: unlike
+   * CreditNote, a decision and its reasons are exactly what staff need to see to act on
+   * an approval or a decline.
+   */
+  async listDecisionsForLoan(loanId: string) {
+    const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
+    if (!loan) throw new NotFoundException('Loan not found');
+
+    return this.prisma.lenderDecision.findMany({
+      where: { loanId },
+      orderBy: { decidedAt: 'desc' },
+    });
+  }
+
+  /** Every information request a bank has raised on this loan, most recent first. */
+  async listInfoRequestsForLoan(loanId: string) {
+    const loan = await this.prisma.loan.findUnique({ where: { id: loanId } });
+    if (!loan) throw new NotFoundException('Loan not found');
+
+    return this.prisma.infoRequest.findMany({
+      where: { loanId },
+      orderBy: { askedAt: 'desc' },
+    });
+  }
+
+  /** UZA staff answering a bank's question — the other half of the Q&A thread. */
+  async answerInfoRequest(
+    loanId: string,
+    infoRequestId: string,
+    dto: AnswerInfoRequestDto,
+    staffUserId: string,
+    auditContext: RequestAuditContext = {},
+  ) {
+    const infoRequest = await this.prisma.infoRequest.findFirst({
+      where: { id: infoRequestId, loanId },
+    });
+    if (!infoRequest) {
+      throw new NotFoundException('Information request not found');
+    }
+    if (infoRequest.answeredAt) {
+      throw new BadRequestException('This request has already been answered');
+    }
+
+    const answered = await this.prisma.infoRequest.update({
+      where: { id: infoRequestId },
+      data: {
+        answer: dto.answer,
+        answeredByRef: staffUserId,
+        answeredAt: new Date(),
+      },
+    });
+
+    await this.auditService.record({
+      userId: staffUserId,
+      action: 'info-request:answered',
+      entity: 'InfoRequest',
+      entityId: infoRequestId,
+      metadata: { loanId, email: auditContext.actorEmail },
+      ipAddress: auditContext.ipAddress,
+      userAgent: auditContext.userAgent,
+    });
+
+    return answered;
   }
 
   private async getRequestOrThrow(id: string) {

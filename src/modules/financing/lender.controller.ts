@@ -1,18 +1,24 @@
 import {
+  Body,
   Controller,
   Get,
   NotFoundException,
   Param,
+  Post,
   Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { Request } from 'express';
+import type { AuthenticatedRequest } from '../../users/users.types';
+import { AskInfoRequestDto } from './dto/ask-info-request.dto';
+import { CreateCreditNoteDto } from './dto/create-credit-note.dto';
+import { RecordLenderDecisionDto } from './dto/record-lender-decision.dto';
 import type { LenderConfig } from './lenders.registry';
 import { LenderAccessGuard } from './guards/lender-access.guard';
 import { LenderService } from './lender.service';
 
-interface LenderScopedRequest extends Request {
+interface LenderScopedRequest extends AuthenticatedRequest {
   lender?: LenderConfig;
 }
 
@@ -35,6 +41,12 @@ export class LenderController {
     // Set by LenderAccessGuard, which runs first — absent only if that invariant breaks.
     if (!request.lender) throw new NotFoundException();
     return request.lender;
+  }
+
+  private requireUserId(request: LenderScopedRequest): string {
+    const userId = request.user?.sub;
+    if (!userId) throw new UnauthorizedException();
+    return userId;
   }
 
   @Get('summary')
@@ -113,6 +125,113 @@ export class LenderController {
     @Param('loanId') loanId: string,
   ) {
     return this.lenderService.savingsForLoan(
+      this.requireLender(request),
+      loanId,
+    );
+  }
+
+  @Get('queue')
+  @ApiOperation({
+    summary:
+      "A bank's working queue — pending/in-review loans plus each one's open " +
+      'information request and latest decision, if any',
+  })
+  queue(@Req() request: LenderScopedRequest) {
+    return this.lenderService.queue(this.requireLender(request));
+  }
+
+  @Post('loans/:loanId/decisions')
+  @ApiOperation({
+    summary: 'Record a credit decision on one of this bank’s own loans',
+  })
+  recordDecision(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+    @Body() dto: RecordLenderDecisionDto,
+  ) {
+    return this.lenderService.recordDecision(
+      this.requireLender(request),
+      loanId,
+      dto,
+      this.requireUserId(request),
+    );
+  }
+
+  @Get('loans/:loanId/decisions')
+  @ApiOperation({ summary: 'Every decision recorded on this loan' })
+  listDecisions(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+  ) {
+    return this.lenderService.listDecisions(
+      this.requireLender(request),
+      loanId,
+    );
+  }
+
+  @Post('loans/:loanId/info-requests')
+  @ApiOperation({
+    summary: 'Ask UZA a question about one of this bank’s own loans',
+  })
+  askInfoRequest(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+    @Body() dto: AskInfoRequestDto,
+  ) {
+    return this.lenderService.askInfoRequest(
+      this.requireLender(request),
+      loanId,
+      dto,
+      this.requireUserId(request),
+    );
+  }
+
+  @Get('loans/:loanId/info-requests')
+  @ApiOperation({
+    summary: 'This bank’s own question-and-answer thread on this loan',
+  })
+  listInfoRequests(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+  ) {
+    return this.lenderService.listInfoRequests(
+      this.requireLender(request),
+      loanId,
+    );
+  }
+
+  /**
+   * Bank-internal only. This is the ONE place in the whole API surface that reads or
+   * writes a credit note — see CreditNote's own doc comment in schema.prisma for why
+   * UZA-staff-facing code never touches this table at all.
+   */
+  @Post('loans/:loanId/credit-notes')
+  @ApiOperation({
+    summary:
+      'Add a bank-internal underwriting note (UZA staff cannot read this)',
+  })
+  addCreditNote(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+    @Body() dto: CreateCreditNoteDto,
+  ) {
+    return this.lenderService.addCreditNote(
+      this.requireLender(request),
+      loanId,
+      dto,
+      this.requireUserId(request),
+    );
+  }
+
+  @Get('loans/:loanId/credit-notes')
+  @ApiOperation({
+    summary: 'This bank’s own internal notes on this loan',
+  })
+  listCreditNotes(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+  ) {
+    return this.lenderService.listCreditNotes(
       this.requireLender(request),
       loanId,
     );
