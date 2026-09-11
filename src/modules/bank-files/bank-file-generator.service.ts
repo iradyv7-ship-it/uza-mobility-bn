@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ItemSource } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { LenderRequirementsService } from '../financing/lender-requirements.service';
 
 /**
  * Produces the bank-file items the platform already knows the answer to.
@@ -24,7 +25,78 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class BankFileGeneratorService {
   private readonly logger = new Logger(BankFileGeneratorService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly requirements: LenderRequirementsService,
+  ) {}
+
+  /**
+   * Bring this file's `BankFileItem` rows in line with what its lender actually
+   * requires — additively.
+   *
+   * This is the readiness check's connection to `LenderRequirement`: a file opened
+   * before a bank had its own configured list, or a bank whose list has grown since,
+   * gets any newly-required item added as `present: false`, exactly as if it had been
+   * there from the start. Never removes a row, even one no longer on the resolved list —
+   * an item a lender no longer asks for is not evidence that should disappear, and a
+   * bank's list can always be corrected without punishing every file already collected
+   * against the old one. A bank with no configured list resolves to
+   * `DEFAULT_BANK_FILE_ITEMS`, so this is always safe to run.
+   */
+  async syncRequiredItems(bankFileRef: string): Promise<{
+    ref: string;
+    added: string[];
+    source: 'bank-specific' | 'uza-default';
+  }> {
+    const file = await this.prisma.bankFile.findUnique({
+      where: { ref: bankFileRef },
+      include: { items: { select: { code: true } } },
+    });
+    if (!file) {
+      throw new NotFoundException(`bank file ${bankFileRef} not found`);
+    }
+
+    const required = await this.requirements.resolveRequiredItems(
+      file.lenderName,
+    );
+    const existingCodes = new Set(file.items.map((i) => i.code));
+    const missing = required.filter((r) => !existingCodes.has(r.code));
+
+    if (missing.length > 0) {
+      await this.prisma.bankFileItem.createMany({
+        data: missing.map((item) => ({
+          bankFileId: file.id,
+          code: item.code,
+          label: item.label,
+          source: item.source,
+        })),
+        skipDuplicates: true,
+      });
+      await this.prisma.bankFileEvent.create({
+        data: {
+          bankFileId: file.id,
+          kind: 'item_added',
+          detail: `requirements synced: ${missing.map((m) => m.code).join(', ')}`,
+        },
+      });
+    }
+
+    const bank = await this.prisma.bank.findFirst({
+      where: { name: { equals: file.lenderName, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    const hasOwnList = bank
+      ? (await this.prisma.lenderRequirement.count({
+          where: { bankId: bank.id },
+        })) > 0
+      : false;
+
+    return {
+      ref: file.ref,
+      added: missing.map((m) => m.code),
+      source: hasOwnList ? 'bank-specific' : 'uza-default',
+    };
+  }
 
   /**
    * Generate everything generatable for one file.

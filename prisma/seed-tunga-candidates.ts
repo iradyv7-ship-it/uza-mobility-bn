@@ -32,6 +32,7 @@ import 'dotenv/config';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { readFileSync } from 'node:fs';
+import { DEFAULT_BANK_FILE_ITEMS } from '../src/modules/bank-files/default-bank-file-items';
 
 // Prisma 7 requires a driver adapter. Matches how src/prisma/prisma.service.ts does it,
 // so the seed connects exactly the way the application does.
@@ -68,20 +69,12 @@ async function allocateUzaId(tx: Prisma.TransactionClient, year: number): Promis
   return `UZA-P-${year}-${String(rows[0].lastValue).padStart(6, '0')}`;
 }
 
-/** The eleven, and where each one actually comes from. */
-const BANK_FILE_ITEMS: { code: string; label: string; source: 'generated' | 'uploaded' | 'external' }[] = [
-  { code: 'APPLICATION_FORM', label: 'Application form', source: 'generated' },
-  { code: 'NATIONAL_ID', label: 'National identity card', source: 'uploaded' },
-  { code: 'DRIVING_LICENCE', label: 'Driving licence', source: 'uploaded' },
-  { code: 'CRB_REPORT', label: 'Credit reference bureau report', source: 'external' },
-  { code: 'TRAINING_CERTIFICATE', label: 'UZA Academy certificate', source: 'generated' },
-  { code: 'READINESS_SCORE', label: 'Readiness score and evidence', source: 'generated' },
-  { code: 'INCOME_EVIDENCE', label: 'Measured daily net', source: 'generated' },
-  { code: 'CONTRIBUTION_PROOF', label: 'Proof of client contribution', source: 'uploaded' },
-  { code: 'PROFORMA', label: 'Vehicle proforma invoice', source: 'generated' },
-  { code: 'INSURANCE_QUOTE', label: 'Comprehensive insurance quotation', source: 'generated' },
-  { code: 'VEHICLE_ALLOCATION', label: 'Allocated vehicle and VIN', source: 'generated' },
-];
+/**
+ * The eleven, and where each one actually comes from — the single shared definition in
+ * `src/modules/bank-files/default-bank-file-items.ts`, also used at runtime as the
+ * fallback for any bank with no requirements of its own configured in `LenderRequirement`.
+ */
+const BANK_FILE_ITEMS = DEFAULT_BANK_FILE_ITEMS;
 
 /** Read the brand out of free text like "BYD Yuan Plus 2024 (3 Pcs)". */
 const BRANDS = ['BYD', 'AION', 'Aion', 'Dongfeng', 'Geely', 'Neta', 'Skyworth', 'Venucia', 'Li Auto'];

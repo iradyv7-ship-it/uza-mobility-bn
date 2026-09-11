@@ -25,6 +25,20 @@ export class BankFilesController {
     private readonly bankPackage: BankPackageService,
   ) {}
 
+  @Post(':ref/sync-requirements')
+  @RequirePermission('financing:send-to-bank')
+  @ApiOperation({
+    summary:
+      "Add any of this file's lender's requirements it does not have yet",
+    description:
+      'Reads the lender’s own document requirements if configured, otherwise the UZA ' +
+      'default eleven-item checklist, and adds whichever items this file is missing. ' +
+      'Never removes an existing item.',
+  })
+  syncRequirements(@Param('ref') ref: string) {
+    return this.generator.syncRequiredItems(ref);
+  }
+
   @Get('bottleneck')
   @RequirePermission('financing:read')
   @ApiOperation({
@@ -82,7 +96,9 @@ export class BankFilesController {
 
   @Get(':ref/packages')
   @RequirePermission('financing:read')
-  @ApiOperation({ summary: 'Every published version of this bank file’s package' })
+  @ApiOperation({
+    summary: 'Every published version of this bank file’s package',
+  })
   listPackages(@Param('ref') ref: string) {
     return this.bankPackage.listVersions(ref);
   }

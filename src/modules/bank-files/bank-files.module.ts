@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PdfModule } from '../../common/pdf/pdf.module';
 import { UploadsModule } from '../../common/uploads/uploads.module';
 import { AuthModule } from '../auth/auth.module';
+import { FinancingModule } from '../financing/financing.module';
 import { BankFileGeneratorService } from './bank-file-generator.service';
 import { BankFilesController } from './bank-files.controller';
 import { BankPackagePdfService } from './bank-package-pdf.service';
@@ -19,7 +20,7 @@ import { BankPackageStorageService } from './bank-package-storage.service';
  * checksums and archives the PDF a bank is handed — see its own doc comment.
  */
 @Module({
-  imports: [AuthModule, PdfModule, UploadsModule],
+  imports: [AuthModule, PdfModule, UploadsModule, FinancingModule],
   controllers: [BankFilesController],
   providers: [
     BankFileGeneratorService,

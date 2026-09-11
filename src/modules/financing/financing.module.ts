@@ -9,6 +9,7 @@ import { FinancingService } from './financing.service';
 import { FundApplicationController } from './fund-application.controller';
 import { FundApplicationService } from './fund-application.service';
 import { LenderController } from './lender.controller';
+import { LenderRequirementsService } from './lender-requirements.service';
 import { LenderService } from './lender.service';
 
 @Module({
@@ -21,7 +22,17 @@ import { LenderService } from './lender.service';
     FundApplicationController,
     LenderController,
   ],
-  providers: [FinancingService, LenderService, FundApplicationService],
-  exports: [FinancingService, LenderService, FundApplicationService],
+  providers: [
+    FinancingService,
+    LenderService,
+    FundApplicationService,
+    LenderRequirementsService,
+  ],
+  exports: [
+    FinancingService,
+    LenderService,
+    FundApplicationService,
+    LenderRequirementsService,
+  ],
 })
 export class FinancingModule {}

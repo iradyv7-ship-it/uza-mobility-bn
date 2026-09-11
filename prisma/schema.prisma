@@ -1059,11 +1059,52 @@ model Bank {
   /// no lender portal of its own yet.
   lenderKey String? @unique
 
-  financingRequests FinancingRequest[]
-  loans             Loan[]
-  collateralEntries CollateralEntry[]
+  financingRequests    FinancingRequest[]
+  loans                Loan[]
+  collateralEntries    CollateralEntry[]
+  documentRequirements LenderRequirement[]
 
   @@map("banks")
+}
+
+/// One bank's own document checklist for a bank file — the per-institution version of
+/// the eleven-item list `bank-files` module otherwise hardcodes.
+///
+/// Onboarding a new lender with a different checklist used to mean a code change to
+/// `BankFileGeneratorService`. This is data instead: a bank with rows here gets its own
+/// list; a bank with none falls back to the UZA default (`DEFAULT_BANK_FILE_ITEMS`) so
+/// removing a partner's configuration can never silently leave a file with zero
+/// requirements. `code` follows the same UPPER_SNAKE convention as `BankFileItem.code`
+/// so a bank-specific requirement and a platform-generated one can sit in the same list
+/// without a translation step.
+model LenderRequirement {
+  id     String @id @default(cuid())
+  bankId String
+
+  /// Stable, uppercase-snake identifier — matches `BankFileItem.code`'s convention.
+  /// Derived from `label` at import time and never regenerated afterwards, so editing the
+  /// label later does not orphan any `BankFileItem` rows already created against it.
+  code      String
+  label     String
+  guidance  String?
+  /// Almost everything a bank asks for is mandatory; this exists for the rare exception
+  /// (e.g. "autorisation de transport, if you already have one").
+  required  Boolean    @default(true)
+  /// Defaults to `uploaded`: a newly pasted requirement is, by definition, not one of the
+  /// handful of codes `BankFileGeneratorService.produce()` knows how to generate — see
+  /// that file's own comment on why a generator that invents evidence is worse than one
+  /// that admits it has none.
+  source    ItemSource @default(uploaded)
+  sortOrder Int        @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bank Bank @relation(fields: [bankId], references: [id], onDelete: Cascade)
+
+  @@unique([bankId, code])
+  @@index([bankId, sortOrder])
+  @@map("lender_requirements")
 }
 
 // ============================================================
@@ -1867,10 +1908,10 @@ model Cohort {
   enrolments Enrolment[]
   journeys   CandidateJourney[]
 
+  fundApplications FundApplication[]
+
   @@index([track, status])
   @@map("cohorts")
-
-  fundApplications FundApplication[]
 }
 
 model Enrolment {
@@ -3553,10 +3594,10 @@ model BankFile {
 /// same reason `BankFile`'s own commercial fields are copied rather than referenced (see
 /// its own doc comment above) — the source rows can keep moving after this is signed.
 model BankPackage {
-  id     String @id @default(cuid())
-  ref    String @unique // e.g. UZM-BF-2026-000451-v3
+  id         String @id @default(cuid())
+  ref        String @unique // e.g. UZM-BF-2026-000451-v3
   bankFileId String
-  version Int
+  version    Int
 
   /// Where the rendered PDF lives — StorageService's public URL, same convention as
   /// every other generated document in this codebase (see FleetPdfStorageService).
@@ -3806,7 +3847,7 @@ model FundApplication {
   /// Maps to GapKind.LICENCE_OR_PERMIT when absent or expired.
   licenceNumber   String?
   licenceCategory String?
-  licenceExpiry   DateTime? @db.Date
+  licenceExpiry   DateTime?            @db.Date
   yearsDriving    Int?
   /// Owns / rents / drives for an employer. Decides whether a trade-in is possible and
   /// whether the applicant currently pays a daily rental they would stop paying.
@@ -3827,20 +3868,20 @@ model FundApplication {
 
   // --- Savings and banking ------------------------------------------------------
   /// Maps to GapKind.CONTRIBUTION_SHORT once a product's required contribution is known.
-  currentSavingsRwf     Int?
-  savingsHeldAt         SavingsLocation?
+  currentSavingsRwf        Int?
+  savingsHeldAt            SavingsLocation?
   monthlySavingCapacityRwf Int?
   /// Maps to GapKind.NO_BANK_FARE_SETTLEMENT.
-  hasBankAccount        Boolean @default(false)
-  bankName              String?
-  mobileMoneyNumber     String?
+  hasBankAccount           Boolean          @default(false)
+  bankName                 String?
+  mobileMoneyNumber        String?
   /// Maps to GapKind.THIN_CREDIT_FILE.
-  hasBorrowedBefore     Boolean @default(false)
-  currentlyRepayingLoan Boolean @default(false)
-  currentLoanDetail     String?
+  hasBorrowedBefore        Boolean          @default(false)
+  currentlyRepayingLoan    Boolean          @default(false)
+  currentLoanDetail        String?
 
   // --- What they are applying for ------------------------------------------------
-  cohortId          String?
+  cohortId             String?
   preferredTenorMonths Int?
   depositAvailableRwf  Int?
   /// Which lender the applicant is being put forward to, if already decided.
@@ -3848,10 +3889,10 @@ model FundApplication {
 
   // --- Declaration and consent ----------------------------------------------------
   /// The applicant states the answers are true. Without this the form is not submitted.
-  declarationAccepted Boolean @default(false)
+  declarationAccepted        Boolean @default(false)
   /// Consent to share the file with the named lender. Separate from the declaration on
   /// purpose: agreeing your answers are true is not agreeing a bank may read them.
-  lenderConsentGiven  Boolean @default(false)
+  lenderConsentGiven         Boolean @default(false)
   /// Consent to the training and inspection record being kept. Also separate.
   dataProcessingConsentGiven Boolean @default(false)
 
@@ -3863,14 +3904,14 @@ model FundApplication {
 
   /// Signature: who signed, when, and where the image lives. `signatureRef` points at
   /// GridFS; the image itself never goes in Postgres.
-  signedAt      DateTime?
-  signatureRef  String?
-  witnessName   String?
-  witnessRef    String?
+  signedAt     DateTime?
+  signatureRef String?
+  witnessName  String?
+  witnessRef   String?
 
   submittedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   cohort Cohort? @relation(fields: [cohortId], references: [id])
 

@@ -17,14 +17,19 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CreateBankDto } from './dto/create-bank.dto';
 import { CreateCollateralEntryDto } from './dto/create-collateral-entry.dto';
+import { ImportBankRequirementsDto } from './dto/import-bank-requirements.dto';
 import { FinancingService } from './financing.service';
+import { LenderRequirementsService } from './lender-requirements.service';
 
 @ApiTags('admin')
 @ApiBearerAuth('JWT-access')
 @Controller('admin/banks')
 @UseGuards(RolesGuard)
 export class AdminBanksController {
-  constructor(private readonly financingService: FinancingService) {}
+  constructor(
+    private readonly financingService: FinancingService,
+    private readonly lenderRequirementsService: LenderRequirementsService,
+  ) {}
 
   @Get()
   @Roles('FINANCE_ADMIN', 'SUPER_ADMIN')
@@ -67,6 +72,48 @@ export class AdminBanksController {
     return this.financingService.createCollateralEntry(
       bankId,
       dto,
+      userId,
+      getRequestAuditContext(request),
+    );
+  }
+
+  @Get(':bankId/document-requirements')
+  @Roles('FINANCE_ADMIN', 'SUPER_ADMIN')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('financing:read')
+  @ApiOperation({
+    summary: "A bank's own document requirement list",
+    description:
+      'Empty until the bank has a paste-imported list of its own — the platform default ' +
+      'eleven-item checklist applies to any bank file opened for a bank with none.',
+  })
+  listDocumentRequirements(@Param('bankId') bankId: string) {
+    return this.lenderRequirementsService.listForBank(bankId);
+  }
+
+  @Post(':bankId/document-requirements/import')
+  @Roles('FINANCE_ADMIN', 'SUPER_ADMIN')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('financing:send-to-bank')
+  @ApiOperation({
+    summary: "Replace a bank's document requirements from a pasted email",
+    description:
+      'Parses bullets, numbering, "Label: guidance" and "(optional)" wording out of a ' +
+      'requirements email pasted verbatim, stripping greetings, signatures and quoted ' +
+      'headers. Replaces this bank’s entire list — a paste that recognises nothing ' +
+      'leaves the existing list untouched instead of wiping it.',
+  })
+  importDocumentRequirements(
+    @Req() request: AuthenticatedRequest,
+    @Param('bankId') bankId: string,
+    @Body() dto: ImportBankRequirementsDto,
+  ) {
+    const userId = request.user?.sub;
+    if (!userId) throw new UnauthorizedException();
+
+    return this.lenderRequirementsService.importFromEmail(
+      bankId,
+      dto.text,
       userId,
       getRequestAuditContext(request),
     );

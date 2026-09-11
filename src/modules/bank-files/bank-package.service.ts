@@ -1,8 +1,13 @@
 import { createHash } from 'crypto';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import type { RequestAuditContext } from '../../common/audit/request-context.util';
+import { LenderRequirementsService } from '../financing/lender-requirements.service';
 import { BankPackagePdfService } from './bank-package-pdf.service';
 import { BankPackageStorageService } from './bank-package-storage.service';
 import { validateBankFileForPublish } from './bank-package-validation';
@@ -24,6 +29,7 @@ export class BankPackageService {
     private readonly prisma: PrismaService,
     private readonly pdf: BankPackagePdfService,
     private readonly storage: BankPackageStorageService,
+    private readonly requirements: LenderRequirementsService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -40,7 +46,13 @@ export class BankPackageService {
       throw new NotFoundException(`bank file ${bankFileRef} not found`);
     }
 
-    const issues = validateBankFileForPublish(file.items);
+    const requiredItems = await this.requirements.resolveRequiredItems(
+      file.lenderName,
+    );
+    const issues = validateBankFileForPublish(
+      file.items,
+      requiredItems.map((r) => r.code),
+    );
     if (issues.length > 0) {
       throw new BadRequestException({
         message: `This package cannot be published yet: ${issues.length} item(s) unresolved.`,

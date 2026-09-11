@@ -20,9 +20,7 @@ import type { ItemSource } from '@prisma/client';
  */
 
 export type PublishIssueCode =
-  | 'missing_mandatory'
-  | 'inconsistent_status'
-  | 'dropped_mandatory';
+  'missing_mandatory' | 'inconsistent_status' | 'dropped_mandatory';
 
 export interface PublishIssue {
   code: PublishIssueCode;

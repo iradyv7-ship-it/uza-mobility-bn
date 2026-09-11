@@ -65,8 +65,7 @@ export class BankPackagePdfService {
   private renderHtml(ctx: BankPackageRenderContext): string {
     const money = (v: bigint | null) =>
       v === null ? '—' : formatRwfLabel(Number(v));
-    const day = (d: Date | null) =>
-      d ? d.toISOString().slice(0, 10) : '—';
+    const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '—');
 
     const itemRows = ctx.items
       .map((item) => {

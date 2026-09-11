@@ -40,7 +40,7 @@ describe('publishing a bank package', () => {
       code: 'missing_mandatory',
       itemCode: 'CRB_REPORT',
     });
-    expect(issues[0]!.message).toContain('required');
+    expect(issues[0].message).toContain('required');
   });
 
   it('never lets a generated item block on a missing URL — it is rendered on demand', () => {
