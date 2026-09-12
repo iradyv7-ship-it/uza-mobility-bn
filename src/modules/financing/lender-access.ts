@@ -58,9 +58,12 @@ export const lenderRoleFor = (key: string): string =>
 /**
  * May this caller act for this lender?
  *
- * SUPER_ADMIN is included because somebody has to be able to see that a portal is broken.
- * No other staff role is: a marketplace administrator has no business inside a bank's
- * borrower files, and "they are staff" is not consent under 058/2021.
+ * SUPER_ADMIN is included because somebody has to be able to see that a portal is broken —
+ * on the API. The customer front end deliberately does NOT route a SUPER_ADMIN into any
+ * bank's view (a person holding every key should not be dropped into one bank's book), so
+ * for a browser check use a real per-lender account; for a raw check use this API directly.
+ * No other staff role is included: a marketplace administrator has no business inside a
+ * bank's borrower files, and "they are staff" is not consent under 058/2021.
  */
 export function actsForLender(
   lenderKey: string,

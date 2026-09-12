@@ -4573,6 +4573,22 @@ model VehicleInspection {
   batteryHealthPct Int?
   condition        VehicleCondition
   notes            String?
+
+  /// What was found and what was done about it — the record NCBA asked for: "mistakes,
+  /// correction measures and certificate". An array of
+  /// `{ item, severity, correctiveAction, resolvedAt? }`. JSON rather than a child table
+  /// because a finding has no life outside the inspection that raised it, and a lender
+  /// reads the inspection as one document.
+  findings         Json?
+  /// The garage's overall verdict for this month. Null where the garage recorded findings
+  /// but did not certify either way.
+  passed           Boolean?
+  /// The garage's own certificate reference, where one was issued.
+  certificateRef   String?
+  /// When the next inspection falls due. Lets the lender see a missed month as a missed
+  /// month rather than as silence.
+  nextDueAt        DateTime?
+
   createdAt        DateTime         @default(now())
 
   loan     Loan     @relation(fields: [loanId], references: [id])

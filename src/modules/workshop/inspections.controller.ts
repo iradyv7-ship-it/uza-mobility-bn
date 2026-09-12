@@ -1,12 +1,20 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  Get,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { getRequestAuditContext } from '../../common/audit/request-context.util';
 import type { AuthenticatedRequest } from '../../users/users.types';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -32,6 +40,23 @@ export class InspectionsController {
     const userId = request.user?.sub;
     if (!userId) throw new UnauthorizedException();
     return userId;
+  }
+
+  /**
+   * The garage has the client's UZA ID card in hand. This turns it into the loan to file
+   * against and a name to check against the card — and nothing about the loan itself.
+   */
+  @Get('vehicle')
+  @ApiOperation({
+    summary: "Find the financed vehicle(s) behind a client's UZA ID",
+  })
+  @ApiQuery({ name: 'uzaId', example: 'UZA-P-2026-000141' })
+  lookup(@Req() request: AuthenticatedRequest, @Query('uzaId') uzaId?: string) {
+    if (!uzaId?.trim()) throw new BadRequestException('uzaId is required');
+    return this.workshopService.lookupVehicleForInspection(
+      this.requireUserId(request),
+      uzaId,
+    );
   }
 
   @Post()
