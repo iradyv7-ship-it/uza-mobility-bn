@@ -140,6 +140,7 @@ async function seedPermissionsAndRoleMappings() {
     'inquiries:read-own',
     'inquiries:read-all',
     'inquiries:update-status',
+    'fund-applications:manage',
   ];
 
   const permissionRecords = await Promise.all(
@@ -160,6 +161,7 @@ async function seedPermissionsAndRoleMappings() {
       'stations:reject',
       'stations:suspend',
       'stations:read-all',
+      'fund-applications:manage',
     ],
     FINANCE_ADMIN: [
       'invoices:read',
@@ -174,7 +176,13 @@ async function seedPermissionsAndRoleMappings() {
       'platform-settings:manage',
       'financing:read',
       'financing:send-to-bank',
+      'fund-applications:manage',
     ],
+    // The person at the intake table, reading the form aloud and keying it in. Exactly one
+    // permission. Until 12 September 2026 this job was done with FINANCE_ADMIN, which also
+    // carries payments:refund and platform-settings:manage — far more than a field officer
+    // should hold, and far more than a field officer wants to be responsible for.
+    INTAKE_OFFICER: ['fund-applications:manage'],
     LOGISTICS_ADMIN: ['orders:read', 'orders:update-status'],
     FLEET_ADMIN: ['fleet:read', 'fleet:update-status', 'listings:read'],
     SUSTAINABILITY_ADMIN: ['sustainability:read', 'sustainability:manage', 'orders:read'],

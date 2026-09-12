@@ -33,7 +33,7 @@ import { FundApplicationService } from './fund-application.service';
 @ApiBearerAuth('JWT-access')
 @Controller('financing/fund-applications')
 @UseGuards(RolesGuard)
-@Roles('SUPER_ADMIN', 'FINANCE_ADMIN', 'MARKETPLACE_ADMIN')
+@Roles('SUPER_ADMIN', 'FINANCE_ADMIN', 'MARKETPLACE_ADMIN', 'INTAKE_OFFICER')
 export class FundApplicationController {
   constructor(private readonly applications: FundApplicationService) {}
 
