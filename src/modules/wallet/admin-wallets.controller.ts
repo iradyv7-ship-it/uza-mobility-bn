@@ -88,6 +88,15 @@ export class AdminWalletsController {
     return this.covenants.runAll();
   }
 
+  @Get('covenants')
+  @ApiOperation({
+    summary:
+      'Every open covenant across active loans — UZA’s own view, all audiences',
+  })
+  allCovenants() {
+    return this.covenants.forUza();
+  }
+
   @Get('covenants/loans/:loanId')
   @ApiOperation({
     summary: 'Open covenants on one loan, computed now, without notifying',

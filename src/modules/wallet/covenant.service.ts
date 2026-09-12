@@ -249,6 +249,49 @@ export class CovenantService {
     return sent;
   }
 
+  /** Every open covenant across every active loan — UZA's own view, all audiences. */
+  async forUza(now = new Date()) {
+    const loans = await this.prisma.loan.findMany({
+      where: { status: { in: ['ACTIVE', 'IN_ARREARS', 'DISBURSED'] } },
+      include: {
+        borrower: { select: { uzaId: true, firstName: true, lastName: true } },
+        bank: { select: { name: true, lenderKey: true } },
+      },
+    });
+    const out = [];
+    for (const l of loans) {
+      const r = await this.runForLoan(l.id, now, false);
+      if (r.covenants.length) {
+        out.push({
+          loanId: l.id,
+          loanRef: l.reference,
+          uzaId: l.borrower.uzaId,
+          displayName: `${l.borrower.firstName} ${l.borrower.lastName}`.trim(),
+          lender: l.bank.name,
+          worst: r.worst,
+          covenants: r.covenants.map(
+            ({ kind, severity, message, detail, audience }) => ({
+              kind,
+              severity,
+              message,
+              detail,
+              audience,
+            }),
+          ),
+        });
+      }
+    }
+    const rank = (s: string | null) =>
+      s === 'ALERT' ? 0 : s === 'WARNING' ? 1 : 2;
+    return {
+      generatedAt: now.toISOString(),
+      activeLoans: loans.length,
+      loansWithWarnings: out.length,
+      alerts: out.filter((o) => o.worst === 'ALERT').length,
+      rows: out.sort((a, b) => rank(a.worst) - rank(b.worst)),
+    };
+  }
+
   /** Every open covenant across a lender's consenting borrowers — the portal's warnings list. */
   async forLender(lenderKey: string, bankId: string, now = new Date()) {
     const consents = await this.prisma.lenderConsent.findMany({
