@@ -256,6 +256,8 @@ async function seedPermissionsAndRoleMappings() {
       'LENDER_UNGUKA',
       'LENDER_EQUITY',
       'LENDER_NCBA',
+      // Records attendance and assessments in the academy. Checked by name.
+      'TRAINER',
     ].map((name) => ensureRole(name, `Seed role: ${name}`)),
   );
 }

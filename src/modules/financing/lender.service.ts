@@ -4,6 +4,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import type { RequestAuditContext } from '../../common/audit/request-context.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkshopService } from '../workshop/workshop.service';
+import { AcademyService } from '../academy/academy.service';
 import type { AskInfoRequestDto } from './dto/ask-info-request.dto';
 import type { CreateCreditNoteDto } from './dto/create-credit-note.dto';
 import type { RecordLenderDecisionDto } from './dto/record-lender-decision.dto';
@@ -32,6 +33,7 @@ export class LenderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly workshopService: WorkshopService,
+    private readonly academyService: AcademyService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -343,6 +345,18 @@ export class LenderService {
    * consistently ahead of `requiredDailyRwf` is the live signal that they may support
    * more, not just that they can service this loan (see LoanSavingsEntry's own comment).
    */
+  /**
+   * The FIRST of the data products NCBA asked for: what the borrower was taught, what they
+   * passed, and how their loan comprehension held up on re-test. A computed summary — module
+   * counts by kind, the latest and previous comprehension scores with the trend, and the
+   * warnings a reader should notice — never the recordings, which stay with UZA unless a
+   * lender asks for a specific one and the borrower's consent covers it.
+   */
+  async trainingForLoan(lender: LenderConfig, loanId: string) {
+    const loan = await this.requireOwnLoan(lender, loanId);
+    return this.academyService.summaryForUser(loan.borrowerUserId);
+  }
+
   async savingsForLoan(lender: LenderConfig, loanId: string) {
     await this.requireOwnLoan(lender, loanId);
 

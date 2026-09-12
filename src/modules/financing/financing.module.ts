@@ -11,9 +11,10 @@ import { FundApplicationService } from './fund-application.service';
 import { LenderController } from './lender.controller';
 import { LenderRequirementsService } from './lender-requirements.service';
 import { LenderService } from './lender.service';
+import { AcademyModule } from '../academy/academy.module';
 
 @Module({
-  imports: [AuthModule, WorkshopModule],
+  imports: [AuthModule, WorkshopModule, AcademyModule],
   controllers: [
     FinancingController,
     AdminFinancingController,

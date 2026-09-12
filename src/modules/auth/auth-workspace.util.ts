@@ -12,6 +12,7 @@ export const PLATFORM_STAFF_ROLES = [
   'ADVERTISING_ADMIN',
   'SALES_AGENT',
   'INTAKE_OFFICER',
+  'TRAINER',
 ] as const;
 
 const ADMIN_PERMISSION_MARKERS = [

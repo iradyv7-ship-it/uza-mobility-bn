@@ -33,6 +33,7 @@ import { InquiriesModule } from './modules/inquiries/inquiries.module';
 import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 import { ChargingStationsModule } from './modules/charging-stations/charging-stations.module';
 import { WorkshopModule } from './modules/workshop/workshop.module';
+import { AcademyModule } from './modules/academy/academy.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { PdfModule } from './common/pdf/pdf.module';
@@ -96,6 +97,7 @@ import { validateEnv } from './config/env.validation';
     PlatformSettingsModule,
     ChargingStationsModule,
     WorkshopModule,
+    AcademyModule,
   ],
   controllers: [AppController],
   providers: [

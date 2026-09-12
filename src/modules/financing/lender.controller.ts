@@ -116,6 +116,21 @@ export class LenderController {
     );
   }
 
+  @Get('loans/:loanId/training')
+  @ApiOperation({
+    summary:
+      "The borrower's training summary — modules passed by kind, comprehension score and trend",
+  })
+  training(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+  ) {
+    return this.lenderService.trainingForLoan(
+      this.requireLender(request),
+      loanId,
+    );
+  }
+
   @Get('loans/:loanId/savings')
   @ApiOperation({
     summary: "A borrower's daily savings against their required payment",
