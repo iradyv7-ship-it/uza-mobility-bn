@@ -2018,6 +2018,29 @@ enum LedgerDirection {
   DEBIT // money out
 }
 
+/// What the money is FOR. The label a driver puts on their own money, and the thing that
+/// makes "I saved RWF 40,000 for maintenance" a sentence the wallet can say back to them.
+///
+/// Evidence: labelled and commitment accounts raise savings (Ashraf, Karlan & Yin 2006,
+/// SEED, +81%; Dupas & Robinson 2013). Legal shape: these are LEDGER VIEWS over the
+/// client's own funds at the licensed institution — UZA never holds or moves money. A
+/// bucket is a purpose tag on the client's balance; the instalment reaches the loan account
+/// under the client's own standing instruction (SweepMandate), executed by the bank.
+enum LedgerBucket {
+  LOAN // the instalment — first call on every day's money
+  MAINTENANCE // the next tyre, the service, the inspection
+  CHARGING // energy — what fuel money used to be
+  INSURANCE // the quarterly premium-financing instalment (02 §3.7)
+  PERSONAL // the driver's own — never swept, never touched by UZA
+}
+
+/// Who put a ledger line there, and therefore how much it is worth as evidence.
+enum LedgerRecordedBy {
+  DRIVER // the driver recorded it themselves, with the MoMo transaction reference
+  STAFF // a UZA staff member keyed it from a statement or receipt
+  INSTITUTION // matched against the licensed institution's own statement — confirmed
+}
+
 enum LedgerReason {
   TRIP_FARE // settled from the ride-hailing app
   CASH_DEPOSIT // paid in at a charging station or agent
@@ -2046,6 +2069,23 @@ model Wallet {
   reserveBalanceRwf BigInt @default(0) // the driver's money, ring-fenced
   reserveTargetDays Int    @default(15) // instalment-days the reserve aims to hold
   reserveRatePct    Int    @default(8) // % of daily net funding the reserve
+
+  /// The number the driver lives by: instalment ÷ 26 working days. Set from the loan quote
+  /// (or the target vehicle before a loan exists) and shown on every screen.
+  dailyTargetRwf           Int?
+  /// The contribution the band requires for the target vehicle. The progress bar's 100%.
+  contributionTargetRwf    Int?
+  /// Whose money it actually is, and where. Displayed on every wallet screen so no driver
+  /// ever believes UZA holds their savings. The account number never enters this system.
+  institutionName          String?
+  institutionAccountMasked String?
+  /// Default split of a day's money across buckets, in percent, LOAN first. Sums to 100.
+  /// Rules of thumb, not accounting: pay the car first; two purses; the bad-week rule.
+  splitLoanPct             Int     @default(60)
+  splitMaintenancePct      Int     @default(10)
+  splitChargingPct         Int     @default(15)
+  splitInsurancePct        Int     @default(5)
+  splitPersonalPct         Int     @default(10)
 
   openedAt  DateTime  @default(now())
   closedAt  DateTime?
@@ -2080,15 +2120,24 @@ model LedgerEntry {
   ///   sweep:{walletId}:{yyyy-mm-dd}
   idempotencyKey String @unique
 
-  externalRef String? // MoMo txn id, trip id, charging session id
-  note        String?
-  occurredAt  DateTime // when it happened in the real world
-  createdAt   DateTime @default(now()) // when we recorded it
+  externalRef  String? // MoMo txn id, trip id, charging session id
+  note         String?
+  /// Which purpose this line belongs to. Null only for legacy or bucket-neutral lines
+  /// (COMMISSION, ADJUSTMENT at wallet level).
+  bucket       LedgerBucket?
+  /// A line recorded by the driver is a CLAIM until it is matched to the institution's
+  /// statement. The UI shows both states honestly; a lender's view counts only confirmed.
+  recordedBy   LedgerRecordedBy @default(DRIVER)
+  confirmedAt  DateTime?
+  confirmedRef String? // the institution's statement line / bank reference
+  occurredAt   DateTime // when it happened in the real world
+  createdAt    DateTime         @default(now()) // when we recorded it
 
   wallet Wallet @relation(fields: [walletId], references: [id])
 
   @@index([walletId, occurredAt])
   @@index([reason, occurredAt])
+  @@index([walletId, bucket])
   @@map("ledger_entries")
 }
 
@@ -4579,17 +4628,17 @@ model VehicleInspection {
   /// `{ item, severity, correctiveAction, resolvedAt? }`. JSON rather than a child table
   /// because a finding has no life outside the inspection that raised it, and a lender
   /// reads the inspection as one document.
-  findings         Json?
+  findings       Json?
   /// The garage's overall verdict for this month. Null where the garage recorded findings
   /// but did not certify either way.
-  passed           Boolean?
+  passed         Boolean?
   /// The garage's own certificate reference, where one was issued.
-  certificateRef   String?
+  certificateRef String?
   /// When the next inspection falls due. Lets the lender see a missed month as a missed
   /// month rather than as silence.
-  nextDueAt        DateTime?
+  nextDueAt      DateTime?
 
-  createdAt        DateTime         @default(now())
+  createdAt DateTime @default(now())
 
   loan     Loan     @relation(fields: [loanId], references: [id])
   mechanic Mechanic @relation(fields: [mechanicId], references: [id])

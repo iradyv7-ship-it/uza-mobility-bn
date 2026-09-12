@@ -34,6 +34,7 @@ import { PlatformSettingsModule } from './modules/platform-settings/platform-set
 import { ChargingStationsModule } from './modules/charging-stations/charging-stations.module';
 import { WorkshopModule } from './modules/workshop/workshop.module';
 import { AcademyModule } from './modules/academy/academy.module';
+import { WalletModule } from './modules/wallet/wallet.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { PdfModule } from './common/pdf/pdf.module';
@@ -98,6 +99,7 @@ import { validateEnv } from './config/env.validation';
     ChargingStationsModule,
     WorkshopModule,
     AcademyModule,
+    WalletModule,
   ],
   controllers: [AppController],
   providers: [

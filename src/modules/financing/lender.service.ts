@@ -5,6 +5,8 @@ import type { RequestAuditContext } from '../../common/audit/request-context.uti
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkshopService } from '../workshop/workshop.service';
 import { AcademyService } from '../academy/academy.service';
+import { CovenantService } from '../wallet/covenant.service';
+import { WalletService } from '../wallet/wallet.service';
 import type { AskInfoRequestDto } from './dto/ask-info-request.dto';
 import type { CreateCreditNoteDto } from './dto/create-credit-note.dto';
 import type { RecordLenderDecisionDto } from './dto/record-lender-decision.dto';
@@ -34,6 +36,8 @@ export class LenderService {
     private readonly prisma: PrismaService,
     private readonly workshopService: WorkshopService,
     private readonly academyService: AcademyService,
+    private readonly walletService: WalletService,
+    private readonly covenantService: CovenantService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -355,6 +359,41 @@ export class LenderService {
   async trainingForLoan(lender: LenderConfig, loanId: string) {
     const loan = await this.requireOwnLoan(lender, loanId);
     return this.academyService.summaryForUser(loan.borrowerUserId);
+  }
+
+  /**
+   * The THIRD data product: the borrower's daily savings behaviour from the wallet —
+   * confirmed deposits only, loan-facing buckets only, the driver's personal savings never.
+   * The consistency ratio here is the number the readiness score is built on.
+   */
+  async walletForLoan(lender: LenderConfig, loanId: string) {
+    const loan = await this.requireOwnLoan(lender, loanId);
+    return this.walletService.performanceForUser(loan.borrowerUserId);
+  }
+
+  /** Open covenant warnings on one loan, as the covenant engine computes them right now. */
+  async covenantsForLoan(lender: LenderConfig, loanId: string) {
+    await this.requireOwnLoan(lender, loanId);
+    const r = await this.covenantService.runForLoan(loanId, new Date(), false);
+    return {
+      loanRef: r.loanRef,
+      worst: r.worst,
+      covenants: r.covenants
+        .filter((c) => c.audience.includes('LENDER'))
+        .map(({ kind, severity, message, detail }) => ({
+          kind,
+          severity,
+          message,
+          detail,
+        })),
+    };
+  }
+
+  /** Every open warning across this lender's consenting borrowers — the portal's list. */
+  async covenants(lender: LenderConfig) {
+    const bankId = await this.resolveBankId(lender);
+    if (!bankId) return [];
+    return this.covenantService.forLender(lender.key, bankId);
   }
 
   async savingsForLoan(lender: LenderConfig, loanId: string) {

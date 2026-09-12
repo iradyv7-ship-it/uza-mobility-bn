@@ -13,9 +13,10 @@ import { LenderRequirementsService } from './lender-requirements.service';
 import { LenderService } from './lender.service';
 import { AcademyModule } from '../academy/academy.module';
 import { EmpowerSupportController } from './empower-support.controller';
+import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
-  imports: [AuthModule, WorkshopModule, AcademyModule],
+  imports: [AuthModule, WorkshopModule, AcademyModule, WalletModule],
   controllers: [
     FinancingController,
     AdminFinancingController,

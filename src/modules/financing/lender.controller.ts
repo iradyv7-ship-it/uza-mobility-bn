@@ -116,6 +116,39 @@ export class LenderController {
     );
   }
 
+  @Get('covenants')
+  @ApiOperation({
+    summary:
+      'Open covenant warnings across your consenting borrowers: missed deposits, overdue or failed inspections',
+  })
+  covenants(@Req() request: LenderScopedRequest) {
+    return this.lenderService.covenants(this.requireLender(request));
+  }
+
+  @Get('loans/:loanId/wallet')
+  @ApiOperation({
+    summary:
+      "The borrower's daily savings behaviour — confirmed deposits, consistency ratio, streak, last 30 days",
+  })
+  wallet(@Req() request: LenderScopedRequest, @Param('loanId') loanId: string) {
+    return this.lenderService.walletForLoan(
+      this.requireLender(request),
+      loanId,
+    );
+  }
+
+  @Get('loans/:loanId/covenants')
+  @ApiOperation({ summary: 'Open covenant warnings on one loan' })
+  loanCovenants(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+  ) {
+    return this.lenderService.covenantsForLoan(
+      this.requireLender(request),
+      loanId,
+    );
+  }
+
   @Get('loans/:loanId/training')
   @ApiOperation({
     summary:
