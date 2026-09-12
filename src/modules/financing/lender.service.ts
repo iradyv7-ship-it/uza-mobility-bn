@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import type { RequestAuditContext } from '../../common/audit/request-context.util';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -10,6 +11,7 @@ import {
   assertDecisionAllowed,
   loanStatusForDecision,
 } from './lender-decision.rules';
+import { mayDisclose } from './lender-access';
 import type { LenderConfig } from './lenders.registry';
 import { summarizeSavings } from './loan-savings.util';
 
@@ -42,16 +44,89 @@ export class LenderService {
   }
 
   /**
-   * A loan, only if it belongs to this lender's own bank — the same 404-for-both
-   * shape as `LenderAccessGuard` itself: a loan that exists but belongs to another
-   * bank must be indistinguishable from a loan that does not exist at all.
+   * The consent gate.
+   *
+   * Being the lender of record does not, on its own, create permission to read the file —
+   * consent under Law N° 058/2021 is specific to the recipient, and the portal tells the
+   * bank in writing that files appear only where the borrower consented. Until 12 September
+   * 2026 that sentence was true in the UI and false in this file: every borrower with a loan
+   * at the bank was returned regardless.
+   *
+   * Every list below is scoped by this fragment in addition to `bankId`. A borrower with a
+   * loan here and no live consent for this lender is simply absent — from the counts as well
+   * as the rows, because "3 active loans" above a list of one is itself a disclosure.
+   *
+   * Consent is matched on the borrower's UZA ID, the identifier the lender actually sees. A
+   * borrower without a UZA ID cannot have a matchable consent and is therefore not shown,
+   * which is the fail-safe direction.
+   */
+  private async disclosureScope(
+    lender: LenderConfig,
+  ): Promise<Prisma.LoanWhereInput> {
+    const consents = await this.prisma.lenderConsent.findMany({
+      where: { lenderKey: lender.key, withdrawnAt: null, uzaId: { not: null } },
+      select: { uzaId: true },
+    });
+    const uzaIds = consents
+      .map((c) => c.uzaId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    return { borrower: { uzaId: { in: uzaIds } } };
+  }
+
+  /**
+   * A loan, only if it belongs to this lender's own bank AND its borrower has a live consent
+   * for this lender — the same 404-for-both shape as `LenderAccessGuard` itself. A loan that
+   * exists but belongs to another bank, and a loan at this bank whose borrower withdrew
+   * consent, must both be indistinguishable from a loan that does not exist at all.
+   *
+   * The reason is recorded in the audit log, where a lender repeatedly asking about people
+   * who are not its borrowers can be told apart from one asking about a borrower who
+   * withdrew — while the lender itself learns nothing.
    */
   private async requireOwnLoan(lender: LenderConfig, loanId: string) {
     const bankId = await this.resolveBankId(lender);
     const loan = bankId
-      ? await this.prisma.loan.findFirst({ where: { id: loanId, bankId } })
+      ? await this.prisma.loan.findFirst({
+          where: { id: loanId, bankId },
+          include: { borrower: { select: { uzaId: true } } },
+        })
       : null;
-    if (!loan) throw new NotFoundException();
+
+    const exists = loan
+      ? true
+      : !!(await this.prisma.loan.findUnique({
+          where: { id: loanId },
+          select: { id: true },
+        }));
+
+    const consent = loan?.borrower.uzaId
+      ? await this.prisma.lenderConsent.findUnique({
+          where: {
+            uzaId_lenderKey: {
+              uzaId: loan.borrower.uzaId,
+              lenderKey: lender.key,
+            },
+          },
+          select: { grantedAt: true, withdrawnAt: true },
+        })
+      : null;
+
+    const decision = mayDisclose({
+      borrowerExists: exists,
+      isBorrowerOfThisLender: !!loan,
+      consentGivenAt: consent?.grantedAt ?? null,
+      consentWithdrawnAt: consent?.withdrawnAt ?? null,
+    });
+
+    if (!decision.allowed || !loan) {
+      await this.auditService.record({
+        userId: null,
+        action: 'lender:disclosure-refused',
+        entity: 'Loan',
+        metadata: { lenderKey: lender.key, loanId, reason: decision.reason },
+      });
+      throw new NotFoundException();
+    }
     return loan;
   }
 
@@ -77,20 +152,21 @@ export class LenderService {
       };
     }
 
+    const scope = await this.disclosureScope(lender);
     const [applicationsPending, activeLoans, disbursed, arrears] =
       await Promise.all([
         this.prisma.loan.count({
-          where: { bankId, status: { in: ['PENDING', 'IN_REVIEW'] } },
+          where: { bankId, ...scope, status: { in: ['PENDING', 'IN_REVIEW'] } },
         }),
         this.prisma.loan.count({
-          where: { bankId, status: { in: ['ACTIVE', 'IN_ARREARS'] } },
+          where: { bankId, ...scope, status: { in: ['ACTIVE', 'IN_ARREARS'] } },
         }),
         this.prisma.loan.aggregate({
-          where: { bankId, disbursedAt: { not: null } },
+          where: { bankId, ...scope, disbursedAt: { not: null } },
           _sum: { principalRwf: true },
         }),
         this.prisma.loan.aggregate({
-          where: { bankId },
+          where: { bankId, ...scope },
           _sum: { arrearsRwf: true },
         }),
       ]);
@@ -108,8 +184,9 @@ export class LenderService {
     const bankId = await this.resolveBankId(lender);
     if (!bankId) return [];
 
+    const scope = await this.disclosureScope(lender);
     const rows = await this.prisma.loan.findMany({
-      where: { bankId, status: { in: ['PENDING', 'IN_REVIEW'] } },
+      where: { bankId, ...scope, status: { in: ['PENDING', 'IN_REVIEW'] } },
       orderBy: { createdAt: 'desc' },
       include: { borrower: { select: { firstName: true, lastName: true } } },
     });
@@ -134,9 +211,11 @@ export class LenderService {
     const bankId = await this.resolveBankId(lender);
     if (!bankId) return [];
 
+    const scope = await this.disclosureScope(lender);
     const rows = await this.prisma.loan.findMany({
       where: {
         bankId,
+        ...scope,
         status: { notIn: ['PENDING', 'IN_REVIEW', 'DECLINED'] },
       },
       orderBy: { createdAt: 'desc' },
@@ -164,8 +243,9 @@ export class LenderService {
     const bankId = await this.resolveBankId(lender);
     if (!bankId) return [];
 
+    const scope = await this.disclosureScope(lender);
     const rows = await this.prisma.loan.findMany({
-      where: { bankId, disbursedAt: { not: null } },
+      where: { bankId, ...scope, disbursedAt: { not: null } },
       orderBy: { disbursedAt: 'desc' },
     });
 
@@ -187,8 +267,9 @@ export class LenderService {
     const bankId = await this.resolveBankId(lender);
     if (!bankId) return [];
 
+    const scope = await this.disclosureScope(lender);
     const rows = await this.prisma.loan.findMany({
-      where: { bankId, disbursedAt: { not: null } },
+      where: { bankId, ...scope, disbursedAt: { not: null } },
       select: { disbursedAt: true, outstandingRwf: true, arrearsRwf: true },
     });
 
@@ -289,8 +370,9 @@ export class LenderService {
     const bankId = await this.resolveBankId(lender);
     if (!bankId) return [];
 
+    const scope = await this.disclosureScope(lender);
     const rows = await this.prisma.loan.findMany({
-      where: { bankId, status: { in: ['PENDING', 'IN_REVIEW'] } },
+      where: { bankId, ...scope, status: { in: ['PENDING', 'IN_REVIEW'] } },
       orderBy: { createdAt: 'desc' },
       include: {
         borrower: { select: { firstName: true, lastName: true } },
