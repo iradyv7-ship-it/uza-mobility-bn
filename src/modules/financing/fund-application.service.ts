@@ -5,6 +5,10 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  contributionBandPct,
+  requiredContributionRwf,
+} from './empower-support.rules';
 import type { CreateFundApplicationDto } from './dto/create-fund-application.dto';
 import type { SignFundApplicationDto } from './dto/sign-fund-application.dto';
 import {
@@ -180,13 +184,45 @@ export class FundApplicationService {
    */
   async screen(
     id: string,
-    requiredContributionRwf = DEFAULT_REQUIRED_CONTRIBUTION_RWF,
-  ): Promise<{ ref: string; gaps: ScreeningGap[]; blockedAtIntake: boolean }> {
+    requiredContributionOverrideRwf?: number,
+    vehiclePriceRwf?: number,
+  ): Promise<{
+    ref: string;
+    gaps: ScreeningGap[];
+    blockedAtIntake: boolean;
+    basis: {
+      requiredContributionRwf: number;
+      vehiclePriceRwf: number | null;
+      bandPct: number | null;
+    };
+  }> {
     const app = await this.prisma.fundApplication.findUnique({ where: { id } });
     if (!app) throw new NotFoundException('No such application.');
 
-    const gaps = screenApplication(app, { requiredContributionRwf });
-    return { ref: app.ref, gaps, blockedAtIntake: isBlockedAtIntake(gaps) };
+    // The required contribution comes from the vehicle's price through the band Unguka
+    // confirmed (10% ≤ RWF 25M, 15% above) — the same rule the support plan uses — when a
+    // price is known. An explicit override still wins for what-if screening. The flat
+    // default remains only for an application with no vehicle priced yet.
+    let required = DEFAULT_REQUIRED_CONTRIBUTION_RWF;
+    let bandPct: number | null = null;
+    if (requiredContributionOverrideRwf) {
+      required = requiredContributionOverrideRwf;
+    } else if (vehiclePriceRwf && vehiclePriceRwf > 0) {
+      required = requiredContributionRwf(vehiclePriceRwf);
+      bandPct = contributionBandPct(vehiclePriceRwf);
+    }
+
+    const gaps = screenApplication(app, { requiredContributionRwf: required });
+    return {
+      ref: app.ref,
+      gaps,
+      blockedAtIntake: isBlockedAtIntake(gaps),
+      basis: {
+        requiredContributionRwf: required,
+        vehiclePriceRwf: vehiclePriceRwf ?? null,
+        bandPct,
+      },
+    };
   }
 
   async findOne(id: string) {

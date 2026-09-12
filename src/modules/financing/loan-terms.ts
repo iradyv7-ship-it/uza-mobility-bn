@@ -91,14 +91,24 @@ export interface LoanQuote {
 }
 
 /**
- * Days per month used to turn a monthly instalment into the daily figure.
+ * WORKING days per month used to turn a monthly instalment into the daily figure.
  *
- * 30 rather than 30.44, deliberately. The daily number is what a driver sets aside each
- * morning, and rounding it down against ourselves would leave them short at the end of
- * the month. Using 30 means twelve instalments of thirty days slightly over-collect
- * against a 365-day year, which is the safe direction for the borrower to be wrong in.
+ * 26, not 30. Until 12 September 2026 this was 30 calendar days, reasoned as "a driver
+ * sets this aside every morning". The pitch portal Unguka has already seen, the curriculum
+ * (module 2.1: "instalment ÷ working days"), and the wallet's streak all count WORKING
+ * days — the days the driver actually earns on. The two systems quoted the same monthly
+ * figure and daily figures 15% apart, and the one the bank had been shown was 26.
+ *
+ * Working days is also the honest unit for the driver: a target set on calendar days is
+ * one they silently miss every Sunday. Still rounded UP — being short at month end is the
+ * borrower's problem, not the spreadsheet's — and 26 × the daily figure over-collects
+ * against the monthly by construction, which is the safe direction to be wrong in.
+ *
+ * Reference, Neta U Pro 2022 at RWF 23.5M with 10% contribution: 60 months → RWF 29,393
+ * per working day; 36 months → RWF 36,339. Both match the portal to the franc.
  */
-const DAYS_PER_MONTH = 30;
+export const WORKING_DAYS_PER_MONTH = 26;
+const DAYS_PER_MONTH = WORKING_DAYS_PER_MONTH;
 
 /**
  * A standard amortising instalment.

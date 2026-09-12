@@ -13,6 +13,11 @@ import {
   scoreFromAnswers,
   type CurriculumModule,
 } from './academy.rules';
+import {
+  NOT_MEASURED,
+  repaymentComparison,
+  trainingValue,
+} from './impact.rules';
 import type { EnrolDto } from './dto/enrol.dto';
 import type { RecordAssessmentDto } from './dto/record-assessment.dto';
 import type { RecordAttendanceDto } from './dto/record-attendance.dto';
@@ -389,5 +394,152 @@ export class AcademyService {
       })),
       assessments,
     );
+  }
+
+  /**
+   * The impact report: what the academy has delivered, what it cost, and whether the
+   * claim made to lenders — trained drivers repay better — holds on the data so far.
+   *
+   * Everything is computed from records at call time. The cost rate comes from the caller
+   * (finance holds it); the EUR rate is for the S.U.L benchmark only. Anything that cannot
+   * be computed from records is listed under `notMeasured` with what would unlock it,
+   * because an estimate presented as a measurement is the thing a funder will catch first.
+   */
+  async impact(params: {
+    costPerParticipantHourRwf?: number;
+    rwfPerEur?: number;
+  }) {
+    await this.ensureModules();
+    const [enrolments, attendance, assessments, journeys, loans] =
+      await Promise.all([
+        this.prisma.enrolment.groupBy({
+          by: ['status'],
+          _count: { _all: true },
+        }),
+        this.prisma.moduleAttendance.findMany({
+          select: {
+            passed: true,
+            assessorId: true,
+            enrolment: { select: { userId: true } },
+            module: { select: { hours: true, code: true } },
+          },
+        }),
+        this.prisma.assessment.findMany({
+          where: { kind: 'COMPREHENSION' },
+          select: {
+            scorePct: true,
+            retestOfId: true,
+            enrolment: { select: { userId: true } },
+          },
+          orderBy: { assessedAt: 'asc' },
+        }),
+        this.prisma.candidateJourney.groupBy({
+          by: ['stage'],
+          _count: { _all: true },
+        }),
+        this.prisma.loan.findMany({
+          select: {
+            borrowerUserId: true,
+            status: true,
+            arrearsRwf: true,
+            outstandingRwf: true,
+          },
+        }),
+      ]);
+
+    // Certification per participant, from the same rule the lender's summary uses.
+    const byUser = new Map<string, { passed: Set<string>; scores: number[] }>();
+    for (const a of attendance) {
+      const u = byUser.get(a.enrolment.userId) ?? {
+        passed: new Set(),
+        scores: [],
+      };
+      if (a.passed) u.passed.add(a.module.code);
+      byUser.set(a.enrolment.userId, u);
+    }
+    for (const a of assessments) {
+      const u = byUser.get(a.enrolment.userId) ?? {
+        passed: new Set(),
+        scores: [],
+      };
+      u.scores.push(a.scorePct);
+      byUser.set(a.enrolment.userId, u);
+    }
+    const isCertified = (userId: string) => {
+      const u = byUser.get(userId);
+      if (!u) return false;
+      const latest = u.scores.at(-1);
+      return (
+        u.passed.size === CURRICULUM.length &&
+        latest !== undefined &&
+        latest >= 70
+      );
+    };
+
+    const hoursDelivered = attendance
+      .filter((a) => a.passed)
+      .reduce((t, a) => t + a.module.hours, 0);
+    const participantsTrained = byUser.size;
+    const firsts = assessments
+      .filter((a) => !a.retestOfId)
+      .map((a) => a.scorePct);
+    const retests = assessments.filter((a) => a.retestOfId);
+    const mean = (xs: number[]) =>
+      xs.length
+        ? Math.round((xs.reduce((t, x) => t + x, 0) / xs.length) * 10) / 10
+        : null;
+
+    // Falling on re-test: per user, latest vs previous.
+    let falling = 0;
+    for (const u of byUser.values()) {
+      if (u.scores.length >= 2 && u.scores.at(-1)! < u.scores.at(-2)! - 5)
+        falling += 1;
+    }
+
+    const stage = (name: string) =>
+      journeys.find((j) => j.stage === name)?._count._all ?? 0;
+
+    return {
+      generatedAt: new Date().toISOString(),
+      delivery: {
+        enrolments: Object.fromEntries(
+          enrolments.map((e) => [e.status, e._count._all]),
+        ),
+        participantsWithAnyRecord: participantsTrained,
+        certified: [...byUser.keys()].filter(isCertified).length,
+        moduleSittings: attendance.length,
+        moduleSittingsPassed: attendance.filter((a) => a.passed).length,
+        hoursDelivered,
+        distinctTrainers: new Set(
+          attendance.map((a) => a.assessorId).filter(Boolean),
+        ).size,
+        advisedToBuildFurther: stage('ADVISED_TO_BUILD_FURTHER'),
+        placedInDriversPool: stage('PLACED_IN_DRIVERS_POOL'),
+      },
+      comprehension: {
+        firstAssessments: firsts.length,
+        meanFirstScorePct: mean(firsts),
+        retestsTaken: retests.length,
+        meanRetestScorePct: mean(retests.map((r) => r.scorePct)),
+        participantsFallingOnRetest: falling,
+      },
+      value: trainingValue(hoursDelivered, participantsTrained, {
+        costPerParticipantHourRwf: params.costPerParticipantHourRwf ?? 0,
+        rwfPerEur: params.rwfPerEur,
+      }),
+      repayment: repaymentComparison(
+        loans.map((l) => ({
+          certified: isCertified(l.borrowerUserId),
+          status: l.status,
+          arrearsRwf: l.arrearsRwf,
+          outstandingRwf: l.outstandingRwf,
+        })),
+      ),
+      notMeasured: NOT_MEASURED,
+      note:
+        params.costPerParticipantHourRwf === undefined
+          ? 'value.* is zero because no costPerParticipantHourRwf was supplied. Pass UZA’s own cost per participant-hour; it is not assumed here.'
+          : undefined,
+    };
   }
 }

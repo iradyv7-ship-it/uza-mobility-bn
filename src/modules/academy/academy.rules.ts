@@ -162,6 +162,15 @@ export const CURRICULUM: readonly CurriculumModule[] = [
       'Own placement data read aloud. The lesson, the assessment and the underwriting evidence at once.',
   },
   {
+    code: '2.7',
+    title: 'The ladder and the term: what a bigger stake and three years save',
+    kind: 'BUSINESS',
+    hours: 1.5,
+    sequence: 27,
+    summary:
+      "The driver's own vehicle through the support-plan what-if: each extra RWF 100,000 of stake, the ladder to 50%, three years against five in RWF per working day and total interest. The right balance is theirs to choose.",
+  },
+  {
     code: '2.6',
     title: 'Insurance, honestly',
     kind: 'LITERACY',

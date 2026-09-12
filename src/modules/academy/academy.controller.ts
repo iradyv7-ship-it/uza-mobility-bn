@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -82,6 +83,25 @@ export class AcademyController {
       dto,
       getRequestAuditContext(request),
     );
+  }
+
+  @Get('impact')
+  @ApiOperation({
+    summary:
+      'Delivery, cost, comprehension, and the repayment comparison — computed from records; what is not measured is listed with the reason',
+  })
+  impact(
+    @Query('costPerParticipantHourRwf') rate?: string,
+    @Query('rwfPerEur') fx?: string,
+  ) {
+    const n = (v?: string) => {
+      const x = v ? Number(v) : NaN;
+      return Number.isFinite(x) && x >= 0 ? x : undefined;
+    };
+    return this.academy.impact({
+      costPerParticipantHourRwf: n(rate),
+      rwfPerEur: n(fx),
+    });
   }
 
   @Get('participants/:uzaId')

@@ -99,8 +99,14 @@ describe('what the driver is told', () => {
     // A driver sets this aside each morning. Rounding down leaves them short at the end
     // of the month, and being short is the borrower's problem, not the spreadsheet's.
     const q = quoteLoan(FINANCED, 36, UNGUKA_RATE_BANDS);
-    expect(q.dailyRwf).toBe(Math.ceil(q.monthlyRwf / 30));
-    expect(q.dailyRwf * 30).toBeGreaterThanOrEqual(q.monthlyRwf);
+    expect(q.dailyRwf).toBe(Math.ceil(q.monthlyRwf / 26));
+    expect(q.dailyRwf * 26).toBeGreaterThanOrEqual(q.monthlyRwf);
+  });
+
+  it('quotes per WORKING day, matching the figures the bank has already seen', () => {
+    // Neta U Pro 2022, RWF 23.5M, 10% contribution → RWF 21.15M financed.
+    expect(quoteLoan(21_150_000, 60, UNGUKA_RATE_BANDS).dailyRwf).toBe(29_393);
+    expect(quoteLoan(21_150_000, 36, UNGUKA_RATE_BANDS).dailyRwf).toBe(36_339);
   });
 
   it('returns whole francs everywhere', () => {

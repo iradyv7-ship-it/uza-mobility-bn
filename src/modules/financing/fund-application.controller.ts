@@ -86,11 +86,12 @@ export class FundApplicationController {
   screen(
     @Param('id') id: string,
     @Query('requiredContributionRwf') required?: string,
+    @Query('vehiclePriceRwf') price?: string,
   ) {
-    const parsed = required ? Number.parseInt(required, 10) : undefined;
-    return this.applications.screen(
-      id,
-      Number.isFinite(parsed) && parsed! > 0 ? parsed : undefined,
-    );
+    const num = (v?: string) => {
+      const n = v ? Number.parseInt(v, 10) : NaN;
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    };
+    return this.applications.screen(id, num(required), num(price));
   }
 }

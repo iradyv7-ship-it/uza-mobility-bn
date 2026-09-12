@@ -12,6 +12,7 @@ import { LenderController } from './lender.controller';
 import { LenderRequirementsService } from './lender-requirements.service';
 import { LenderService } from './lender.service';
 import { AcademyModule } from '../academy/academy.module';
+import { EmpowerSupportController } from './empower-support.controller';
 
 @Module({
   imports: [AuthModule, WorkshopModule, AcademyModule],
@@ -21,6 +22,7 @@ import { AcademyModule } from '../academy/academy.module';
     AdminBanksController,
     AdminLoansController,
     FundApplicationController,
+    EmpowerSupportController,
     LenderController,
   ],
   providers: [
