@@ -150,6 +150,22 @@ describe('the 90-day behaviour statement', () => {
     expect(performance(lines, 30_000, null, NOW).consistencyRatio).toBe(1);
   });
 
+  it('a deposit still waiting for the bank keeps the streak but is not yet evidence', () => {
+    const lines = [
+      credit('LOAN', 30_000, 0),
+      credit('LOAN', 30_000, 1, false), // entered by the driver, not yet confirmed
+      credit('LOAN', 30_000, 2),
+      credit('LOAN', 30_000, 3),
+    ];
+    const p = performance(lines, 30_000, null, NOW);
+    expect(p.currentStreak).toBe(4); // the driver did their part on all four days
+    expect(p.daysHit).toBe(3); // the lender-facing count waits for the bank
+    expect(p.daily.at(-2)).toMatchObject({
+      depositedRwf: 0,
+      pendingRwf: 30_000,
+    });
+  });
+
   it('breaks the streak on a missed day and remembers the longest', () => {
     const lines = [
       credit('LOAN', 30_000, 0),

@@ -15,6 +15,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedRequest } from '../../users/users.types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { worstOf } from './covenant.rules';
 import { CovenantService } from './covenant.service';
 import { AllocateDto } from './dto/allocate.dto';
 import { RecordDepositDto } from './dto/record-deposit.dto';
@@ -76,11 +77,10 @@ export class WalletController {
     });
     if (!loan) return { loan: null, covenants: [], worst: null };
     const r = await this.covenants.runForLoan(loan.id, new Date(), false);
-    return {
-      loan: r.loanRef,
-      worst: r.worst,
-      covenants: r.covenants.filter((c) => c.audience.includes('DRIVER')),
-    };
+    // The badge is over what the driver is shown, not over everything the engine found — a
+    // coaching flag meant for UZA must not surface here as a severity with no explanation.
+    const mine = r.covenants.filter((c) => c.audience.includes('DRIVER'));
+    return { loan: r.loanRef, worst: worstOf(mine), covenants: mine };
   }
 
   @Post('deposits')

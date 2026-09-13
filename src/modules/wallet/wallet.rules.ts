@@ -214,7 +214,15 @@ const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
 export interface DailyRecord {
   date: string;
+  /** Confirmed by the institution. The only figure that is evidence for anyone. */
   depositedRwf: number;
+  /**
+   * Entered by the driver (MoMo transaction ID) but not yet confirmed by staff against the
+   * bank file. Not evidence — but not a miss either, for as long as the reconciliation hold
+   * lasts (see covenant.rules.ts). Without this field a bank that confirms on Tuesday what
+   * the driver paid on Saturday would produce a false warning on Monday morning.
+   */
+  pendingRwf: number;
   targetRwf: number;
   hit: boolean;
 }
@@ -254,6 +262,7 @@ export function performance(
 ): Performance {
   const start = new Date(now.getTime() - (windowDays - 1) * DAY);
   const byDay = new Map<string, number>();
+  const pendingByDay = new Map<string, number>();
   let pending = 0;
   for (const l of lines) {
     if (
@@ -263,11 +272,12 @@ export function performance(
     )
       continue;
     if (l.occurredAt < start || l.occurredAt > now) continue;
+    const k = ymd(l.occurredAt);
     if (!l.confirmedAt) {
       pending += l.amountRwf;
+      pendingByDay.set(k, (pendingByDay.get(k) ?? 0) + l.amountRwf);
       continue;
     }
-    const k = ymd(l.occurredAt);
     byDay.set(k, (byDay.get(k) ?? 0) + l.amountRwf);
   }
 
@@ -280,24 +290,29 @@ export function performance(
     daily.push({
       date: k,
       depositedRwf: dep,
+      pendingRwf: pendingByDay.get(k) ?? 0,
       targetRwf: target,
       hit: target > 0 ? dep >= target : dep > 0,
     });
   }
 
+  // Streaks are the driver's own record of showing up, so a day whose deposit is still
+  // waiting for the bank keeps the streak — the driver did their part. The ratio below stays
+  // confirmed-only, because that one is read by lenders.
+  const kept = (r: DailyRecord) => r.depositedRwf > 0 || r.pendingRwf > 0;
   let longest = 0,
     run = 0;
   for (const r of daily) {
-    run = r.depositedRwf > 0 ? run + 1 : 0;
+    run = kept(r) ? run + 1 : 0;
     longest = Math.max(longest, run);
   }
   // Current streak: count back from yesterday (today may still be in progress).
   let current = 0;
   for (let i = daily.length - 2; i >= 0; i--) {
-    if (daily[i].depositedRwf > 0) current += 1;
+    if (kept(daily[i])) current += 1;
     else break;
   }
-  if (daily.at(-1)!.depositedRwf > 0) current += 1;
+  if (kept(daily.at(-1)!)) current += 1;
 
   const totalConfirmed = daily.reduce((t, r) => t + r.depositedRwf, 0);
   const workingDays = Math.round((windowDays * 26) / 30);

@@ -18,6 +18,17 @@ import type { DailyRecord } from './wallet.rules';
  *                     3 misses in a row → ALERT   to driver + UZA + lender
  *                     5+ in 7 days       → ALERT, and UZA's month-3 coaching is triggered
  *
+ *  Reconciliation     A day on which the driver entered a deposit that staff have not yet
+ *  hold               confirmed against the bank file is HELD, not missed, for up to
+ *                     RECONCILIATION_HOLD_WORKING_DAYS. A held day is skipped like a
+ *                     Sunday: it neither breaks a run of misses nor ends one. A bank that
+ *                     confirms on Tuesday what was paid on Saturday must not produce a
+ *                     Monday-morning alert to a lender. Past the hold the day counts as a
+ *                     miss again — a claimed deposit is not a deposit — and UZA gets a
+ *                     WARNING of its own (DEPOSIT_UNRECONCILED), because a deposit still
+ *                     unconfirmed after three working days is UZA's failure, not the
+ *                     driver's. The driver is told the same, in reassuring words.
+ *
  *  Short deposits     Deposits present but below target for 5 of the last 7 working days
  *                     → WARNING to driver + UZA. Not to the lender: the record shows it and
  *                     the instalment may still be met from the buffer.
@@ -40,9 +51,18 @@ import type { DailyRecord } from './wallet.rules';
 export type Severity = 'NOTICE' | 'WARNING' | 'ALERT';
 export type Audience = 'DRIVER' | 'UZA' | 'LENDER';
 
+/**
+ * Working days a driver-entered deposit may wait for staff confirmation before it stops
+ * shielding its day from being a miss. Three: MoMo statements reach UZA's finance desk the
+ * next working day and a weekend deposit is confirmed by Tuesday. Longer, and a driver could
+ * hold off every warning by typing transaction IDs.
+ */
+export const RECONCILIATION_HOLD_WORKING_DAYS = 3;
+
 export interface Covenant {
   kind:
     | 'DEPOSIT_MISSED'
+    | 'DEPOSIT_UNRECONCILED'
     | 'DEPOSIT_SHORT'
     | 'INSPECTION_OVERDUE'
     | 'INSPECTION_MISSING'
@@ -99,19 +119,45 @@ export function evaluateCovenants(input: CovenantInput): Covenant[] {
   // ── Deposits: consecutive working-day misses, counting back from yesterday ──────────
   // Today is still in progress until the morning run of the next day, so a miss is only
   // final once the day has ended. Yesterday is the first day that can be a miss.
+  //
+  // Each past working day is one of three things. HIT: a confirmed deposit. HELD: nothing
+  // confirmed, but the driver entered a deposit and it is still inside the reconciliation
+  // hold — skipped, like a Sunday. MISS: nothing confirmed and nothing held.
   const days = [...input.daily];
   const yesterdayIdx = days.length - 2;
+  const state = new Map<string, 'HIT' | 'HELD' | 'MISS'>();
+  const staleHeld: DailyRecord[] = [];
+  let workingDaysAgo = 0;
+  for (let i = yesterdayIdx; i >= 0 && i >= yesterdayIdx - 13; i--) {
+    const r = days[i];
+    if (!isWorkingDay(new Date(r.date + 'T00:00:00Z'))) continue;
+    workingDaysAgo += 1;
+    if (r.depositedRwf > 0) {
+      state.set(r.date, 'HIT');
+    } else if (r.pendingRwf > 0) {
+      if (workingDaysAgo <= RECONCILIATION_HOLD_WORKING_DAYS) {
+        state.set(r.date, 'HELD');
+      } else {
+        state.set(r.date, 'MISS');
+        staleHeld.push(r);
+      }
+    } else {
+      state.set(r.date, 'MISS');
+    }
+  }
+
   let consecutive = 0;
   for (let i = yesterdayIdx; i >= 0 && i >= yesterdayIdx - 13; i--) {
-    const d = new Date(days[i].date + 'T00:00:00Z');
-    if (!isWorkingDay(d)) continue;
-    if (days[i].depositedRwf > 0) break;
+    const st = state.get(days[i].date);
+    if (!st || st === 'HELD') continue;
+    if (st === 'HIT') break;
     consecutive += 1;
   }
   const last7 = days
     .slice(-8, -1)
-    .filter((r) => isWorkingDay(new Date(r.date + 'T00:00:00Z')));
-  const missesIn7 = last7.filter((r) => r.depositedRwf === 0).length;
+    .filter((r) => isWorkingDay(new Date(r.date + 'T00:00:00Z')))
+    .filter((r) => state.get(r.date) !== 'HELD');
+  const missesIn7 = last7.filter((r) => state.get(r.date) === 'MISS').length;
 
   if (consecutive >= 1 && active) {
     const severity: Severity =
@@ -143,6 +189,32 @@ export function evaluateCovenants(input: CovenantInput): Covenant[] {
         loanRef: input.loan?.reference ?? null,
       },
       dedupeKey: `DEPOSIT_MISSED:${today}:${severity}`,
+    });
+  }
+
+  // ── Deposits: entered by the driver, still unconfirmed past the hold ───────────────
+  // This one is about UZA's desk, not the driver's behaviour. It goes to UZA as a WARNING
+  // and to the driver as reassurance; never to the lender, who sees only the confirmed
+  // record and, if the day is genuinely missed, the DEPOSIT_MISSED above.
+  if (active && staleHeld.length) {
+    const oldest = staleHeld[staleHeld.length - 1];
+    const totalRwf = staleHeld.reduce((t, r) => t + r.pendingRwf, 0);
+    out.push({
+      kind: 'DEPOSIT_UNRECONCILED',
+      severity: 'WARNING',
+      audience: ['DRIVER', 'UZA'],
+      message:
+        staleHeld.length === 1
+          ? `The deposit you entered on ${oldest.date} has not been confirmed by UZA yet. UZA is checking it against the bank now; you do not need to do anything.`
+          : `${staleHeld.length} deposits you entered, the oldest on ${oldest.date}, have not been confirmed by UZA yet. UZA is checking them against the bank now; you do not need to do anything.`,
+      detail: {
+        unconfirmedDays: staleHeld.length,
+        oldestDate: oldest.date,
+        totalPendingRwf: totalRwf,
+        holdWorkingDays: RECONCILIATION_HOLD_WORKING_DAYS,
+        loanRef: input.loan?.reference ?? null,
+      },
+      dedupeKey: `DEPOSIT_UNRECONCILED:${today}`,
     });
   }
 

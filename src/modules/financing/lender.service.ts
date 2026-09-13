@@ -409,17 +409,19 @@ export class LenderService {
   async covenantsForLoan(lender: LenderConfig, loanId: string) {
     await this.requireOwnLoan(lender, loanId);
     const r = await this.covenantService.runForLoan(loanId, new Date(), false);
+    // `worst` must be computed over what the lender is shown, not over everything the engine
+    // found — otherwise a UZA-only warning (a stale reconciliation, a coaching flag) leaks as
+    // a severity with an empty list, which tells the bank that something exists.
+    const visible = r.covenants.filter((c) => c.audience.includes('LENDER'));
     return {
       loanRef: r.loanRef,
-      worst: r.worst,
-      covenants: r.covenants
-        .filter((c) => c.audience.includes('LENDER'))
-        .map(({ kind, severity, message, detail }) => ({
-          kind,
-          severity,
-          message,
-          detail,
-        })),
+      worst: worstOf(visible),
+      covenants: visible.map(({ kind, severity, message, detail }) => ({
+        kind,
+        severity,
+        message,
+        detail,
+      })),
     };
   }
 
