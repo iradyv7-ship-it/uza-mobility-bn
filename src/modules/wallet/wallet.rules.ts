@@ -37,35 +37,44 @@ export const BUCKETS: readonly Bucket[] = [
   'PERSONAL',
 ];
 
-/** What each bucket is, in the words the driver sees. Kinyarwanda strings are proposals for review. */
+/**
+ * What each bucket is, in the words the driver sees. Kinyarwanda from
+ * `03-uza-empower/training/kinyarwanda-glossary.md` — proposals pending native review; the
+ * glossary carries the reasoning for each word, so correct it there and copy here.
+ */
 export const BUCKET_LABELS: Record<
   Bucket,
-  { en: string; rw: string; purpose: string }
+  { en: string; rw: string; purpose: string; purposeRw: string }
 > = {
   LOAN: {
     en: 'Loan',
     rw: 'Inguzanyo',
     purpose: 'The instalment. First call on every day’s money.',
+    purposeRw: 'Icyo wishyura buri munsi. Kibanza.',
   },
   MAINTENANCE: {
     en: 'Maintenance',
     rw: 'Kubungabunga',
     purpose: 'The next tyre, the service, the monthly inspection.',
+    purposeRw: 'Ipine itaha, na garage.',
   },
   CHARGING: {
     en: 'Charging',
     rw: 'Umuriro',
     purpose: 'Energy — what fuel money used to be.',
+    purposeRw: 'Aho lisansi yajyaga.',
   },
   INSURANCE: {
     en: 'Insurance',
     rw: 'Ubwishingizi',
     purpose: 'The quarterly instalment on the premium.',
+    purposeRw: 'Ubwishingizi bwa buri gihembwe.',
   },
   PERSONAL: {
     en: 'My savings',
     rw: 'Ubwizigame bwanjye',
     purpose: 'Yours. Never swept, never touched by UZA.',
+    purposeRw: 'Ni ayawe. Nta wuyakoraho.',
   },
 };
 

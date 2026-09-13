@@ -84,10 +84,13 @@ export class AcademyService {
 
   async listModules() {
     await this.ensureModules();
-    return this.prisma.academyModule.findMany({
+    const rows = await this.prisma.academyModule.findMany({
       where: { isActive: true },
       orderBy: { sequence: 'asc' },
     });
+    // The Kinyarwanda title lives in code beside the curriculum, not in the table.
+    const rw = new Map(CURRICULUM.map((m) => [m.code, m.titleRw]));
+    return rows.map((r) => ({ ...r, titleRw: rw.get(r.code) ?? null }));
   }
 
   private async requireParticipant(uzaId: string) {

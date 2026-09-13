@@ -27,6 +27,8 @@ export interface CurriculumModule {
   sequence: number;
   deliveredByPartner?: string;
   summary: string;
+  /** The name a participant will say. From the Kinyarwanda glossary; pending native review. */
+  titleRw: string;
 }
 
 /**
@@ -38,6 +40,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   // Track 1 — OPERATE
   {
     code: '1.0',
+    titleRw: 'Isimbuka',
     title: 'The Jump: from a stick to a silent car',
     kind: 'VEHICLE',
     hours: 3,
@@ -47,6 +50,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '1.1',
+    titleRw: "Imodoka y'umuriro",
     title: 'What an electric car is',
     kind: 'VEHICLE',
     hours: 1.5,
@@ -55,6 +59,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '1.2',
+    titleRw: 'Gushyiramo umuriro',
     title: 'Charging',
     kind: 'VEHICLE',
     hours: 2,
@@ -64,6 +69,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '1.3',
+    titleRw: "Umuriro n'urugendo rw'umunsi",
     title: 'Range and the day',
     kind: 'VEHICLE',
     hours: 1.5,
@@ -72,6 +78,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '1.4',
+    titleRw: 'Gutwara neza, ukazigama',
     title: 'Efficient driving',
     kind: 'VEHICLE',
     hours: 2,
@@ -81,6 +88,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '1.5',
+    titleRw: 'Igenzura rya buri munsi',
     title: 'Daily and weekly checks',
     kind: 'VEHICLE',
     hours: 1,
@@ -90,6 +98,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '1.6',
+    titleRw: "Garage n'isuzuma rya buri kwezi",
     title: 'Servicing and the monthly inspection',
     kind: 'VEHICLE',
     hours: 1,
@@ -99,6 +108,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '1.7',
+    titleRw: 'Ubuzima bwa batiri',
     title: 'Battery health',
     kind: 'VEHICLE',
     hours: 1,
@@ -108,6 +118,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '1.8',
+    titleRw: "Kubana n'imodoka yawe",
     title: 'Living with it',
     kind: 'VEHICLE',
     hours: 1,
@@ -118,6 +129,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   // Track 2 — EARN
   {
     code: '2.1',
+    titleRw: 'Intego ya buri munsi',
     title: 'The daily target',
     kind: 'LITERACY',
     hours: 1.5,
@@ -126,6 +138,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '2.2',
+    titleRw: 'Igikapu cyanjye',
     title: 'The wallet',
     kind: 'LITERACY',
     hours: 1.5,
@@ -135,6 +148,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '2.3',
+    titleRw: 'Kwishyura inguzanyo',
     title: 'Servicing the loan',
     kind: 'LITERACY',
     hours: 1.5,
@@ -145,6 +159,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '2.4',
+    titleRw: 'Amategeko atandatu',
     title: 'The six rules of thumb',
     kind: 'BUSINESS',
     hours: 1.5,
@@ -154,6 +169,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '2.5',
+    titleRw: 'Soma ukwezi kwawe',
     title: 'Reading your own month',
     kind: 'BUSINESS',
     hours: 1.5,
@@ -163,6 +179,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '2.7',
+    titleRw: "Umusanzu n'igihe: icyo bizigama",
     title: 'The ladder and the term: what a bigger stake and three years save',
     kind: 'BUSINESS',
     hours: 1.5,
@@ -172,6 +189,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '2.6',
+    titleRw: 'Ubwishingizi, ukuri',
     title: 'Insurance, honestly',
     kind: 'LITERACY',
     hours: 1,
@@ -182,6 +200,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   // Track 3 — CITY AND CRAFT
   {
     code: '3.1',
+    titleRw: 'Ikarita mu ntoki',
     title: 'Google Maps for a driver',
     kind: 'SAFETY',
     hours: 3,
@@ -191,6 +210,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '3.2',
+    titleRw: 'Ahantu ijana',
     title: 'Knowing your city — the Hundred Places',
     kind: 'SAFETY',
     hours: 2,
@@ -200,6 +220,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '3.3',
+    titleRw: "Imyitwarire y'umushoferi",
     title: 'Conduct refresher',
     kind: 'SAFETY',
     hours: 1.5,
@@ -210,6 +231,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '3.4',
+    titleRw: "Amategeko y'umuhanda",
     title: 'Road rules and defensive driving, EV edition',
     kind: 'SAFETY',
     hours: 2,
@@ -221,6 +243,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   // Track 3 — OWN
   {
     code: '4.1',
+    titleRw: "Gahunda y'ubucuruzi bwawe",
     title: 'The business plan, from your own twenty weeks',
     kind: 'BUSINESS',
     hours: 3,
@@ -230,6 +253,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '4.2',
+    titleRw: 'Icyemezo',
     title: 'The decision',
     kind: 'LITERACY',
     hours: 1.5,
