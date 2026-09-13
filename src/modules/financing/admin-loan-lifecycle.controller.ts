@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -15,6 +16,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ChangeTenorDto } from './dto/change-tenor.dto';
 import { CreateLoanDto } from './dto/create-loan.dto';
+import { FilterLoansDto } from './dto/filter-loans.dto';
 import { ReviewLoanChangeDto } from './dto/review-loan-change.dto';
 import { LoanLifecycleService } from './loan-lifecycle.service';
 
@@ -36,6 +38,14 @@ export class AdminLoanLifecycleController {
     const userId = request.user?.sub;
     if (!userId) throw new UnauthorizedException();
     return userId;
+  }
+
+  @Get()
+  @ApiOperation({
+    summary: 'Every loan, filterable by status/search, paginated',
+  })
+  listLoans(@Query() filters: FilterLoansDto) {
+    return this.loanLifecycleService.listLoans(filters);
   }
 
   @Post()

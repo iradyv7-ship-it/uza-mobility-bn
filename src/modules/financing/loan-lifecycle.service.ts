@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { LoanChangeType, LoanStatus } from '@prisma/client';
+import type { LoanChangeType, LoanStatus, Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -407,6 +407,60 @@ export class LoanLifecycleService {
     });
 
     return applied;
+  }
+
+  /**
+   * Every loan, for staff — the list screen behind loan origination and tenor/change-
+   * request review. Same pagination shape as FinancingService.findAllAdmin.
+   */
+  async listLoans(filters: {
+    status?: LoanStatus;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? 25;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.LoanWhereInput = {};
+    if (filters.status) where.status = filters.status;
+    if (filters.search) {
+      where.OR = [
+        { reference: { contains: filters.search, mode: 'insensitive' } },
+        {
+          borrower: {
+            OR: [
+              { firstName: { contains: filters.search, mode: 'insensitive' } },
+              { lastName: { contains: filters.search, mode: 'insensitive' } },
+              { uzaId: { contains: filters.search, mode: 'insensitive' } },
+            ],
+          },
+        },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.loan.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          vehicle: true,
+          borrower: {
+            select: { id: true, uzaId: true, firstName: true, lastName: true },
+          },
+          bank: { select: { name: true, lenderKey: true } },
+        },
+      }),
+      this.prisma.loan.count({ where }),
+    ]);
+
+    return {
+      items,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) || 1 },
+    };
   }
 
   /** A single loan's full current state, for staff review — including its tenor-change history. */
