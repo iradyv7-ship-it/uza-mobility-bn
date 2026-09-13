@@ -153,3 +153,75 @@ export function quoteLoan(
     annualRateBps,
   };
 }
+
+/** One row of a period-by-period repayment schedule. Whole francs throughout. */
+export interface AmortizationRow {
+  readonly period: number;
+  readonly openingBalanceRwf: number;
+  readonly paymentRwf: number;
+  readonly interestRwf: number;
+  readonly principalRwf: number;
+  readonly closingBalanceRwf: number;
+}
+
+/**
+ * The month-by-month breakdown `quoteLoan` deliberately doesn't produce — a single
+ * instalment figure is what a borrower is shown, but a bank reviewing a file (or UZA
+ * reconciling one) needs to see interest vs. principal move period by period.
+ *
+ * The final row absorbs whatever whole-franc rounding accumulated across the schedule, so
+ * the loan always closes at exactly zero rather than a few francs short or over — the same
+ * "round the loan, not the arithmetic" reasoning `quoteLoan` already applies once; this
+ * applies it every period.
+ */
+export function generateAmortizationSchedule(
+  financedRwf: number,
+  tenorMonths: number,
+  bands: readonly RateBand[],
+): AmortizationRow[] {
+  const quote = quoteLoan(financedRwf, tenorMonths, bands);
+  const monthlyRate = quote.annualRateBps / 10_000 / 12;
+
+  const rows: AmortizationRow[] = [];
+  let balance = quote.financedRwf;
+
+  for (let period = 1; period <= tenorMonths; period += 1) {
+    const isLastPeriod = period === tenorMonths;
+    const interestRwf = Math.round(balance * monthlyRate);
+    const principalRwf = isLastPeriod
+      ? balance
+      : quote.monthlyRwf - interestRwf;
+    const paymentRwf = isLastPeriod
+      ? principalRwf + interestRwf
+      : quote.monthlyRwf;
+    const closingBalanceRwf = Math.max(0, balance - principalRwf);
+
+    rows.push({
+      period,
+      openingBalanceRwf: balance,
+      paymentRwf,
+      interestRwf,
+      principalRwf,
+      closingBalanceRwf,
+    });
+
+    balance = closingBalanceRwf;
+  }
+
+  return rows;
+}
+
+/**
+ * What changing a loan's tenor actually means: a fresh quote on the SAME outstanding
+ * principal at the NEW tenor's rate band, never a discount applied to the old figures.
+ * Stretching 36 months to 60 does not extend the old 34% quote — it is a new loan-terms
+ * calculation at 36%, on whatever principal is still owed today. This is the one function
+ * both `LoanTenorService.changeTenor` (real loans) and any "what if" preview call.
+ */
+export function recalculateForNewTenor(
+  outstandingRwf: number,
+  newTenorMonths: number,
+  bands: readonly RateBand[],
+): LoanQuote {
+  return quoteLoan(outstandingRwf, newTenorMonths, bands);
+}

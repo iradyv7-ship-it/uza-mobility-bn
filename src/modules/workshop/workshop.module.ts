@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { AdminMechanicsController } from './admin-mechanics.controller';
 import { InspectionsController } from './inspections.controller';
 import { JobCardsController } from './job-cards.controller';
 import { MechanicsController } from './mechanics.controller';
@@ -34,6 +35,7 @@ import { WorkshopService } from './workshop.service';
     MechanicsController,
     RescueController,
     InspectionsController,
+    AdminMechanicsController,
   ],
   providers: [WorkshopService],
   exports: [WorkshopService],

@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Prisma, type Seller } from '@prisma/client';
+import { genSaltSync, hashSync } from 'bcryptjs';
+import { randomBytes } from 'node:crypto';
 import { AuditService } from '../common/audit/audit.service';
 import type { RequestAuditContext } from '../common/audit/request-context.util';
 import { PrismaService } from '../prisma/prisma.service';
@@ -143,6 +145,109 @@ export class UsersService {
           : null,
       };
     });
+  }
+
+  /**
+   * Staff creating an account on someone else's behalf, with a temporary password the
+   * caller must relay out of band — see CreateAdminAccountDto's doc comment for why this
+   * is distinct from self-registration. The plaintext password is returned exactly once
+   * and never stored; only its hash is.
+   */
+  async createAdminAccount(input: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    phone?: string;
+    roleNames: string[];
+    createdByUserId: string;
+    auditContext?: RequestAuditContext;
+  }): Promise<{ user: SafeUser; temporaryPassword: string }> {
+    await this.ensureEmailIsAvailable(input.email);
+
+    const roles = await this.prisma.role.findMany({
+      where: { name: { in: input.roleNames } },
+    });
+    if (roles.length !== input.roleNames.length) {
+      const found = new Set(roles.map((r) => r.name));
+      const missing = input.roleNames.filter((name) => !found.has(name));
+      throw new BadRequestException(`Unknown role(s): ${missing.join(', ')}`);
+    }
+
+    // URL-safe, no ambiguous characters to read aloud over the phone; long enough that a
+    // temporary credential isn't the weak link, short enough a person can type it once.
+    const temporaryPassword = randomBytes(9).toString('base64url').slice(0, 12);
+    const passwordHash = hashSync(temporaryPassword, genSaltSync(10));
+
+    const user = await this.createUser({
+      email: input.email,
+      phone: input.phone,
+      passwordHash,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      isEmailVerified: true, // staff-provisioned — there is nobody to click a verify link
+      mustChangePassword: true,
+      roles: {
+        create: roles.map((role) => ({ role: { connect: { id: role.id } } })),
+      },
+    });
+
+    // Every UZA account gets its permanent id at creation, not as an afterthought — a
+    // wallet, an academy enrolment, or a loan can all be opened the same day.
+    const withUzaId = await this.assignUzaId(user.id);
+
+    await this.auditService.record({
+      userId: input.createdByUserId,
+      action: 'admin:create-account',
+      entity: 'User',
+      entityId: user.id,
+      metadata: {
+        email: user.email,
+        roles: input.roleNames,
+        uzaId: withUzaId.uzaId,
+      },
+      ipAddress: input.auditContext?.ipAddress,
+      userAgent: input.auditContext?.userAgent,
+    });
+
+    return { user: withUzaId, temporaryPassword };
+  }
+
+  /**
+   * The next permanent UZA identifier, UZA-P-<year>-000141 — see User.uzaId's own doc
+   * comment: "one person, one number, across the marketplace, the academy, financing,
+   * charging and the garage." Nothing in this codebase assigned one before this method
+   * existed (checked: no other write to `uzaId` anywhere in src/), which is why a wallet
+   * could never actually be opened for a newly created account — `WalletService.open`
+   * looks a person up BY their uzaId. Derived from the highest existing id, the same
+   * collision-safe pattern this file already uses for loan and application references.
+   */
+  private async nextUzaId(): Promise<string> {
+    const year = new Date().getFullYear();
+    const prefix = `UZA-P-${year}-`;
+    const newest = await this.prisma.user.findFirst({
+      where: { uzaId: { startsWith: prefix } },
+      orderBy: { uzaId: 'desc' },
+      select: { uzaId: true },
+    });
+    const next = newest?.uzaId
+      ? Number.parseInt(newest.uzaId.slice(prefix.length), 10) + 1
+      : 1;
+    return `${prefix}${String(Number.isNaN(next) ? 1 : next).padStart(6, '0')}`;
+  }
+
+  /** Idempotent: a user who already has a uzaId keeps it, never reissued. */
+  async assignUzaId(userId: string): Promise<SafeUser> {
+    const user = await this.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    if (user.uzaId) return this.toSafeUser(user);
+
+    const uzaId = await this.nextUzaId();
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { uzaId },
+      include: { roles: { include: { role: true } } },
+    });
+    return this.toSafeUser(updated);
   }
 
   async createUser(data: Prisma.UserCreateInput): Promise<SafeUser> {
@@ -790,6 +895,7 @@ export class UsersService {
       isActive: user.isActive,
       isEmailVerified: user.isEmailVerified,
       isPhoneVerified: user.isPhoneVerified,
+      mustChangePassword: user.mustChangePassword,
       preferredLanguage: user.preferredLanguage,
       profilePhoto: user.profilePhoto,
       createdAt: user.createdAt,

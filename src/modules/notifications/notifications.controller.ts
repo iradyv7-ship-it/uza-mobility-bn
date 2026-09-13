@@ -1,7 +1,9 @@
 import {
   Controller,
+  DefaultValuePipe,
   Get,
   Param,
+  ParseBoolPipe,
   Patch,
   Query,
   Req,
@@ -35,6 +37,30 @@ export class NotificationsController {
     return this.notificationsService.findForUser(
       this.requireUserId(request),
       filters,
+    );
+  }
+
+  @Get('tasks')
+  @ApiOperation({
+    summary: 'My task box — work assigned to me, soonest deadline first',
+  })
+  myTasks(
+    @Req() request: AuthenticatedRequest,
+    @Query('includeCompleted', new DefaultValuePipe(false), ParseBoolPipe)
+    includeCompleted: boolean,
+  ) {
+    return this.notificationsService.findTasksForUser(
+      this.requireUserId(request),
+      includeCompleted,
+    );
+  }
+
+  @Patch('tasks/:id/complete')
+  @ApiOperation({ summary: 'Mark one of my assigned tasks done' })
+  completeTask(@Req() request: AuthenticatedRequest, @Param('id') id: string) {
+    return this.notificationsService.completeTask(
+      this.requireUserId(request),
+      id,
     );
   }
 

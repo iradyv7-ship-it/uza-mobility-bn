@@ -70,6 +70,10 @@ model User {
   isActive          Boolean   @default(true)
   isEmailVerified   Boolean   @default(false)
   isPhoneVerified   Boolean   @default(false)
+  /// Set on accounts UZA staff create on someone else's behalf (a driver's or a bank
+  /// officer's first login before they've picked their own password) -- see
+  /// AdminUsersController.createAccount. Never set on self-registration.
+  mustChangePassword Boolean  @default(false)
   preferredLanguage String    @default("en") // en, fr, rw
   profilePhoto      String?
   createdAt         DateTime  @default(now())
@@ -113,6 +117,11 @@ model User {
   jobCards       JobCard[]    @relation("JobCardCustomer")
   rescueRequests RescueCall[] @relation("RescueRequestedBy")
   loans          Loan[]       @relation("LoanBorrower")
+
+  // --- Loan lifecycle: tenor changes and the change-request approval gate ---
+  tenorChangesMade    LoanTenorChange[]    @relation("LoanTenorChangedBy")
+  loanChangeRequested LoanChangeRequest[]  @relation("LoanChangeRequestedBy")
+  loanChangeReviewed  LoanChangeRequest[]  @relation("LoanChangeReviewedBy")
 
   @@index([uzaId])
   @@map("users")
@@ -1641,6 +1650,13 @@ enum NotificationType {
   STATION_SUSPENDED
   SYSTEM_ALERT
   SHIPMENT_UPDATE
+  /// A work item assigned to a specific person with a deadline -- e.g. "Scorah, follow up
+  /// on the Twara EV batch, due Friday." Carried entirely in `metadata` (see
+  /// TaskAssignmentMetadata in notifications.service.ts) rather than a new relational
+  /// model: a Notification already has exactly the shape a task needs (one recipient, a
+  /// title, a body, read/unread) and `metadata: Json?` was built to carry exactly this
+  /// kind of extra context.
+  TASK_ASSIGNED
 }
 
 model Notification {
@@ -4420,9 +4436,115 @@ model Loan {
   lenderDecisions   LenderDecision[]
   infoRequests      InfoRequest[]
   creditNotes       CreditNote[]
+  /// The financed vehicle itself -- chassis/VIN, make/model, color. Deliberately its own
+  /// model rather than reusing ManagedVehicle: ManagedVehicle is UZA's own fleet (an
+  /// ownerUserId UZA controls, a ManagementAgreement, DriverAssignments) -- a vehicle a
+  /// driver is financing and will own outright is a different fact than one UZA leases
+  /// them, and collapsing the two would make ManagedVehicle's fleet-ops fields ambiguous.
+  vehicle           LoanVehicle?
+  /// Every tenor change (e.g. 36 <-> 60 months) ever applied, oldest first. Loan's own
+  /// tenorMonths/monthlyRwf/dailyRwf/totalRepayableRwf/outstandingRwf always reflect the
+  /// CURRENT terms; this is the append-only history of how they got there, mirroring why
+  /// LenderDecision exists instead of only overwriting Loan.status.
+  tenorChanges      LoanTenorChange[]
+  /// Change requests raised against this loan (by a lender or UZA staff) that require a
+  /// second person's sign-off before they take effect -- see LoanChangeRequest.
+  changeRequests    LoanChangeRequest[]
 
   @@index([bankId, status])
   @@map("loans")
+}
+
+/// The financed vehicle behind a Loan. One loan, one vehicle -- see the doc comment on
+/// Loan.vehicle for why this is not ManagedVehicle.
+model LoanVehicle {
+  id            String   @id @default(cuid())
+  loanId        String   @unique
+  chassisNumber String   @unique
+  make          String?
+  model         String?
+  year          Int?
+  color         String?
+  plate         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@map("loan_vehicles")
+}
+
+/// One tenor change applied to a loan -- e.g. 36 months stretched to 60 because the
+/// borrower's covenant data showed they needed a lower monthly payment, or shortened back
+/// once their savings improved. A row per change, never an in-place edit of Loan's terms
+/// without a trace of what they were before -- the same reasoning LenderDecision already
+/// documents for credit decisions.
+model LoanTenorChange {
+  id              String   @id @default(cuid())
+  loanId          String
+  fromTenorMonths Int
+  toTenorMonths   Int
+  fromMonthlyRwf  Int
+  toMonthlyRwf    Int
+  fromDailyRwf    Int
+  toDailyRwf      Int
+  reason          String?
+  changedByUserId String
+
+  createdAt DateTime @default(now())
+
+  loan      Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  changedBy User @relation("LoanTenorChangedBy", fields: [changedByUserId], references: [id])
+
+  @@index([loanId])
+  @@map("loan_tenor_changes")
+}
+
+enum LoanChangeType {
+  TENOR
+  CONTRIBUTION
+  VEHICLE_PRICE
+}
+
+enum LoanChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  APPLIED
+}
+
+/// A proposed change to a loan that must be reviewed by someone other than whoever
+/// proposed it before it takes effect -- the "requests permission" gate the lender
+/// (Unguka/Paulin) side needed and did not have: today a lender has no write access to a
+/// loan's own terms at all (only to their own decisions/info-requests/credit-notes on it).
+/// This gives them a narrow, auditable way to propose a change; UZA staff review and, on
+/// approval, the change is actually applied (LoanChangeRequestService.apply) and
+/// everyone with a stake in the loan is notified -- see NotificationType.TASK_ASSIGNED
+/// and LoanChangeRequestService for the notify-on-change wiring.
+model LoanChangeRequest {
+  id                 String                   @id @default(cuid())
+  loanId             String
+  requestedByUserId  String
+  changeType         LoanChangeType
+  /// Shape depends on changeType: { toTenorMonths } | { contributionRwf } | { vehiclePriceRwf }
+  payload            Json
+  note               String?
+  status             LoanChangeRequestStatus  @default(PENDING)
+  reviewedByUserId   String?
+  reviewedAt         DateTime?
+  reviewNote         String?
+  appliedAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  loan         Loan  @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  requestedBy  User  @relation("LoanChangeRequestedBy", fields: [requestedByUserId], references: [id])
+  reviewedBy   User? @relation("LoanChangeReviewedBy", fields: [reviewedByUserId], references: [id])
+
+  @@index([loanId, status])
+  @@map("loan_change_requests")
 }
 
 enum LenderDecisionOutcome {

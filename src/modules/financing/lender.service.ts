@@ -7,6 +7,10 @@ import { WorkshopService } from '../workshop/workshop.service';
 import { AcademyService } from '../academy/academy.service';
 import { CovenantService } from '../wallet/covenant.service';
 import { WalletService } from '../wallet/wallet.service';
+import { NotificationsService } from '../notifications/notifications.service';
+
+/** Staff roles that do real day-to-day Twara EV / UZA Empower work on a loan file. */
+const LOAN_STAFF_ROLES = ['FINANCE_ADMIN', 'INTAKE_OFFICER', 'SUPER_ADMIN'];
 import type { AskInfoRequestDto } from './dto/ask-info-request.dto';
 import type { CreateCreditNoteDto } from './dto/create-credit-note.dto';
 import type { RecordLenderDecisionDto } from './dto/record-lender-decision.dto';
@@ -39,6 +43,7 @@ export class LenderService {
     private readonly walletService: WalletService,
     private readonly covenantService: CovenantService,
     private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private async resolveBankId(lender: LenderConfig): Promise<string | null> {
@@ -508,6 +513,31 @@ export class LenderService {
       userAgent: auditContext.userAgent,
     });
 
+    // A bank recording a decision used to be silent to everyone but the bank itself --
+    // the record existed but nobody at UZA or the borrower found out except by checking.
+    // Both audiences learn now, same as every other consequential change on a loan file.
+    const outcomeText = dto.outcome.toLowerCase();
+    await Promise.all([
+      this.notificationsService.sendToRoleNames(LOAN_STAFF_ROLES, {
+        type: 'FINANCING_UPDATE',
+        title: `${lender.name}: loan decision recorded`,
+        body: `${lender.name} recorded a ${outcomeText} decision on loan ${loanId}.`,
+        metadata: { loanId, lenderKey: lender.key, outcome: dto.outcome },
+      }),
+      this.notificationsService.send({
+        userId: loan.borrowerUserId,
+        type: 'FINANCING_UPDATE',
+        title: `${lender.name}: an update on your loan`,
+        body:
+          dto.outcome === 'APPROVED'
+            ? `${lender.name} has approved your loan.`
+            : dto.outcome === 'REJECTED'
+              ? `${lender.name} was unable to approve your loan this time.`
+              : `${lender.name} has conditionally approved your loan. UZA will be in touch about the conditions.`,
+        metadata: { loanId, lenderKey: lender.key, outcome: dto.outcome },
+      }),
+    ]);
+
     return decision;
   }
 
@@ -527,13 +557,28 @@ export class LenderService {
     actorUserId: string,
   ) {
     await this.requireOwnLoan(lender, loanId);
-    return this.prisma.infoRequest.create({
+    const infoRequest = await this.prisma.infoRequest.create({
       data: {
         loanId,
         question: dto.question,
         askedByRef: actorUserId,
       },
     });
+
+    // Previously silent: a bank could ask a question and nobody at UZA would know until
+    // someone happened to check the loan file.
+    await this.notificationsService.sendToRoleNames(LOAN_STAFF_ROLES, {
+      type: 'FINANCING_UPDATE',
+      title: `${lender.name} has a question about a loan`,
+      body: dto.question,
+      metadata: {
+        loanId,
+        lenderKey: lender.key,
+        infoRequestId: infoRequest.id,
+      },
+    });
+
+    return infoRequest;
   }
 
   /** The bank's own view of its question-and-answer thread on one loan. */

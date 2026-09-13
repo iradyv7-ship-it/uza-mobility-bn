@@ -11,12 +11,15 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../../users/users.types';
+import { UsersService } from '../../users/users.service';
 import { AskInfoRequestDto } from './dto/ask-info-request.dto';
 import { CreateCreditNoteDto } from './dto/create-credit-note.dto';
 import { RecordLenderDecisionDto } from './dto/record-lender-decision.dto';
+import { RequestLoanChangeDto } from './dto/request-loan-change.dto';
 import type { LenderConfig } from './lenders.registry';
 import { LenderAccessGuard } from './guards/lender-access.guard';
 import { LenderService } from './lender.service';
+import { LoanLifecycleService } from './loan-lifecycle.service';
 
 interface LenderScopedRequest extends AuthenticatedRequest {
   lender?: LenderConfig;
@@ -35,7 +38,11 @@ interface LenderScopedRequest extends AuthenticatedRequest {
 @Controller('financing/lenders/:key')
 @UseGuards(LenderAccessGuard)
 export class LenderController {
-  constructor(private readonly lenderService: LenderService) {}
+  constructor(
+    private readonly lenderService: LenderService,
+    private readonly loanLifecycleService: LoanLifecycleService,
+    private readonly usersService: UsersService,
+  ) {}
 
   private requireLender(request: LenderScopedRequest): LenderConfig {
     // Set by LenderAccessGuard, which runs first — absent only if that invariant breaks.
@@ -283,5 +290,40 @@ export class LenderController {
       this.requireLender(request),
       loanId,
     );
+  }
+
+  /**
+   * The "requires permission, but should be possible" gate: a lender proposing a change
+   * to a loan they cannot edit directly. `requireOwnLoan` (via `lenderService`, reused
+   * here rather than duplicated) still gates which loan ids this bank may even name.
+   * UZA reviews and applies via AdminLoanLifecycleController — see LoanLifecycleService.
+   */
+  @Post('loans/:loanId/change-requests')
+  @ApiOperation({
+    summary:
+      'Propose a change to one of this bank’s own loans (requires UZA approval)',
+  })
+  async requestChange(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+    @Body() dto: RequestLoanChangeDto,
+  ) {
+    // Confirms this loan really belongs to this lender before anything is created.
+    await this.lenderService.listDecisions(this.requireLender(request), loanId);
+
+    const actorUserId = this.requireUserId(request);
+    const actor = await this.usersService.findById(actorUserId);
+    const requestedByName = actor
+      ? `${actor.firstName} ${actor.lastName}`.trim()
+      : this.requireLender(request).name;
+
+    return this.loanLifecycleService.requestChange({
+      loanId,
+      requestedByUserId: actorUserId,
+      requestedByName,
+      changeType: dto.changeType,
+      payload: dto.payload,
+      note: dto.note,
+    });
   }
 }

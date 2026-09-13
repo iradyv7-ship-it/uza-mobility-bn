@@ -105,6 +105,55 @@ export class WorkshopService {
     });
   }
 
+  /**
+   * Onboard a garage/workshop partner. Nothing wrote to `prisma.mechanic` anywhere before
+   * this — a WORKSHOP_ADMIN/MECHANIC role granted the portal, but there was no partner
+   * record behind it, so `InternalWorkshopGuard`'s "is this account a registered
+   * mechanic" check (see inspections.controller.ts) could never pass. `userId`, when
+   * given, inherits that account's uzaId so the two records reconcile onto one person.
+   */
+  async registerMechanic(input: {
+    name: string;
+    engagement: 'EMPLOYED' | 'CERTIFIED';
+    level: 'APPRENTICE' | 'TECHNICIAN' | 'SENIOR' | 'MASTER';
+    certifiedFor: Prisma.MechanicCreateInput['certifiedFor'];
+    certifiedUntil: Date;
+    userId?: string;
+    registeredByUserId: string;
+  }) {
+    let uzaId: string | null = null;
+    if (input.userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: input.userId },
+        select: { uzaId: true },
+      });
+      if (!user) throw new NotFoundException('Linked user not found');
+      uzaId = user.uzaId;
+    }
+
+    const mechanic = await this.prisma.mechanic.create({
+      data: {
+        name: input.name,
+        engagement: input.engagement,
+        level: input.level,
+        certifiedFor: input.certifiedFor,
+        certifiedUntil: input.certifiedUntil,
+        userId: input.userId,
+        uzaId,
+      },
+    });
+
+    await this.auditService.record({
+      userId: input.registeredByUserId,
+      action: 'workshop:register-mechanic',
+      entity: 'Mechanic',
+      entityId: mechanic.id,
+      metadata: { name: mechanic.name, engagement: mechanic.engagement },
+    });
+
+    return mechanic;
+  }
+
   /** Rescue calls, most recent first. `responderName` is null when nobody was available. */
   async listRescueCalls() {
     const rows = await this.prisma.rescueCall.findMany({

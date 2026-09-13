@@ -1,8 +1,10 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { WorkshopModule } from '../workshop/workshop.module';
+import { UsersModule } from '../../users/users.module';
 import { AdminBanksController } from './admin-banks.controller';
 import { AdminFinancingController } from './admin-financing.controller';
+import { AdminLoanLifecycleController } from './admin-loan-lifecycle.controller';
 import { AdminLoansController } from './admin-loans.controller';
 import { FinancingController } from './financing.controller';
 import { FinancingService } from './financing.service';
@@ -11,17 +13,25 @@ import { FundApplicationService } from './fund-application.service';
 import { LenderController } from './lender.controller';
 import { LenderRequirementsService } from './lender-requirements.service';
 import { LenderService } from './lender.service';
+import { LoanLifecycleService } from './loan-lifecycle.service';
 import { AcademyModule } from '../academy/academy.module';
 import { EmpowerSupportController } from './empower-support.controller';
 import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
-  imports: [AuthModule, WorkshopModule, AcademyModule, WalletModule],
+  imports: [
+    AuthModule,
+    WorkshopModule,
+    AcademyModule,
+    WalletModule,
+    forwardRef(() => UsersModule),
+  ],
   controllers: [
     FinancingController,
     AdminFinancingController,
     AdminBanksController,
     AdminLoansController,
+    AdminLoanLifecycleController,
     FundApplicationController,
     EmpowerSupportController,
     LenderController,
@@ -31,12 +41,14 @@ import { WalletModule } from '../wallet/wallet.module';
     LenderService,
     FundApplicationService,
     LenderRequirementsService,
+    LoanLifecycleService,
   ],
   exports: [
     FinancingService,
     LenderService,
     FundApplicationService,
     LenderRequirementsService,
+    LoanLifecycleService,
   ],
 })
 export class FinancingModule {}

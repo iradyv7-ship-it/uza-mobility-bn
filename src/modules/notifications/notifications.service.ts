@@ -4,7 +4,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../../common/mail/mail.service';
 import { NotificationsGateway } from './notifications.gateway';
 import {
+  isTaskAssignmentMetadata,
   type SendNotificationInput,
+  type TaskAssignmentMetadata,
   toNotificationPayload,
 } from './notifications.types';
 import { FilterNotificationsDto } from './dto/filter-notifications.dto';
@@ -84,6 +86,101 @@ export class NotificationsService {
     );
 
     return results;
+  }
+
+  /**
+   * Assign a work item to a named person with a deadline — e.g. "Scorah, follow up on the
+   * Twara EV batch, due Friday." Rides entirely on the existing notification pipeline
+   * (in-app + realtime + email, same as any other notification) rather than a new
+   * relational model — see TaskAssignmentMetadata's doc comment.
+   */
+  async assignTask(input: {
+    assigneeUserId: string;
+    title: string;
+    body: string;
+    dueAt: Date;
+    assignedByUserId: string;
+    assignedByName: string;
+    entityRef?: string;
+  }) {
+    const metadata: TaskAssignmentMetadata = {
+      kind: 'TASK_ASSIGNED',
+      dueAt: input.dueAt.toISOString(),
+      assignedByUserId: input.assignedByUserId,
+      assignedByName: input.assignedByName,
+      entityRef: input.entityRef,
+    };
+
+    return this.send({
+      userId: input.assigneeUserId,
+      type: 'TASK_ASSIGNED',
+      title: input.title,
+      body: input.body,
+      metadata: metadata as unknown as SendNotificationInput['metadata'],
+    });
+  }
+
+  /**
+   * One person's assigned tasks, soonest deadline first. Sorted in application code
+   * rather than via a Prisma `orderBy` on a JSON field, which Postgres supports only
+   * through a raw expression Prisma doesn't model portably — and the row count per
+   * person here is small enough that this is the honest tradeoff, not a shortcut that
+   * will need revisiting the moment the list grows.
+   */
+  async findTasksForUser(userId: string, includeCompleted = false) {
+    const rows = await this.prisma.notification.findMany({
+      where: { userId, type: 'TASK_ASSIGNED' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const tasks = rows
+      .map((row) => ({ row, meta: row.metadata }))
+      .filter((t): t is typeof t & { meta: TaskAssignmentMetadata } =>
+        isTaskAssignmentMetadata(t.meta),
+      )
+      .filter((t) => includeCompleted || !t.meta.completedAt)
+      .map(({ row, meta }) => ({
+        ...toNotificationPayload(row),
+        dueAt: meta.dueAt,
+        assignedByUserId: meta.assignedByUserId,
+        assignedByName: meta.assignedByName,
+        entityRef: meta.entityRef,
+        completedAt: meta.completedAt ?? null,
+        isOverdue: !meta.completedAt && new Date(meta.dueAt) < new Date(),
+      }))
+      .sort(
+        (a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime(),
+      );
+
+    return tasks;
+  }
+
+  /** Marks a task done without deleting it — the assignment stays visible in its history. */
+  async completeTask(userId: string, notificationId: string) {
+    const notification = await this.prisma.notification.findFirst({
+      where: { id: notificationId, userId, type: 'TASK_ASSIGNED' },
+    });
+
+    const currentMetadata: unknown = notification?.metadata;
+    if (!notification || !isTaskAssignmentMetadata(currentMetadata)) {
+      throw new NotFoundException('Task not found');
+    }
+
+    const updatedMetadata: TaskAssignmentMetadata = {
+      ...currentMetadata,
+      completedAt: new Date().toISOString(),
+    };
+
+    const updated = await this.prisma.notification.update({
+      where: { id: notificationId },
+      data: {
+        isRead: true,
+        metadata:
+          updatedMetadata as unknown as SendNotificationInput['metadata'],
+      },
+    });
+
+    return toNotificationPayload(updated);
   }
 
   async findForUser(userId: string, filters: FilterNotificationsDto) {
