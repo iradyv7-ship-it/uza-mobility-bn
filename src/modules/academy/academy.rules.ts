@@ -138,7 +138,7 @@ export const CURRICULUM: readonly CurriculumModule[] = [
   },
   {
     code: '2.2',
-    titleRw: 'Igikapu cyanjye',
+    titleRw: 'Ikigega cyanjye',
     title: 'The wallet',
     kind: 'LITERACY',
     hours: 1.5,
