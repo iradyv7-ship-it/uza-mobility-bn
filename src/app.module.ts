@@ -35,6 +35,7 @@ import { ChargingStationsModule } from './modules/charging-stations/charging-sta
 import { WorkshopModule } from './modules/workshop/workshop.module';
 import { AcademyModule } from './modules/academy/academy.module';
 import { WalletModule } from './modules/wallet/wallet.module';
+import { ImpactModule } from './modules/impact/impact.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { PdfModule } from './common/pdf/pdf.module';
@@ -100,6 +101,7 @@ import { validateEnv } from './config/env.validation';
     WorkshopModule,
     AcademyModule,
     WalletModule,
+    ImpactModule,
   ],
   controllers: [AppController],
   providers: [

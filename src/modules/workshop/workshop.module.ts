@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { AdminMechanicsController } from './admin-mechanics.controller';
+import { AdminTrainingCoursesController } from './admin-training-courses.controller';
 import { InspectionsController } from './inspections.controller';
 import { JobCardsController } from './job-cards.controller';
 import { MechanicsController } from './mechanics.controller';
 import { RescueController } from './rescue.controller';
+import { TrainingCoursesController } from './training-courses.controller';
 import { WorkshopService } from './workshop.service';
 
 /**
@@ -36,6 +38,8 @@ import { WorkshopService } from './workshop.service';
     RescueController,
     InspectionsController,
     AdminMechanicsController,
+    TrainingCoursesController,
+    AdminTrainingCoursesController,
   ],
   providers: [WorkshopService],
   exports: [WorkshopService],

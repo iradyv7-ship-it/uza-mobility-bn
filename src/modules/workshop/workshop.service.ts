@@ -10,14 +10,19 @@ import type { CreateVehicleInspectionDto } from './dto/create-vehicle-inspection
 import { buildBoard, type BoardJob } from './workshop-board';
 import { isCertificationCurrent } from './mechanic-pool';
 import { NotificationsService } from '../notifications/notifications.service';
-import { NotificationType, type Prisma } from '@prisma/client';
+import {
+  NotificationType,
+  type Prisma,
+  type TrainingCourseSource,
+  type WorkCategory,
+} from '@prisma/client';
 import { mayDisclose } from '../financing/lender-access';
 import {
   assertFindingsConsistent,
   assertMayFileInspection,
-  defaultNextDue,
   type InspectionFinding,
 } from './inspection.rules';
+import { nextInspectionDue } from './inspection-economics';
 
 /**
  * Read-side of the workshop. See `workshop.module.ts` for what this deliberately does
@@ -154,6 +159,61 @@ export class WorkshopService {
     return mechanic;
   }
 
+  /**
+   * The technician-training catalog a certified garage's portal surfaces — Section 05.
+   * Manual entry today; a scouting agent populating this automatically (the "China
+   * training/parts agent," same pattern as `market-scout`) is real, separate follow-up
+   * work — this table ships with no seeded rows rather than invented course titles.
+   */
+  async listTrainingCourses(category?: WorkCategory) {
+    return this.prisma.trainingCourse.findMany({
+      where: { isActive: true, ...(category ? { category } : {}) },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async addTrainingCourse(
+    input: {
+      title: string;
+      provider: string;
+      source: TrainingCourseSource;
+      language: string;
+      category: WorkCategory;
+      url?: string;
+      notes?: string;
+    },
+    addedByUserId: string,
+  ) {
+    const course = await this.prisma.trainingCourse.create({
+      data: { ...input, addedByRef: addedByUserId },
+    });
+
+    await this.auditService.record({
+      userId: addedByUserId,
+      action: 'workshop:add-training-course',
+      entity: 'TrainingCourse',
+      entityId: course.id,
+      metadata: { title: course.title, source: course.source },
+    });
+
+    return course;
+  }
+
+  async deactivateTrainingCourse(id: string, actorUserId: string) {
+    const course = await this.prisma.trainingCourse.update({
+      where: { id },
+      data: { isActive: false },
+    });
+    await this.auditService.record({
+      userId: actorUserId,
+      action: 'workshop:deactivate-training-course',
+      entity: 'TrainingCourse',
+      entityId: course.id,
+      metadata: { title: course.title },
+    });
+    return course;
+  }
+
   /** Rescue calls, most recent first. `responderName` is null when nobody was available. */
   async listRescueCalls() {
     const rows = await this.prisma.rescueCall.findMany({
@@ -190,10 +250,18 @@ export class WorkshopService {
    * because the person is physically present and the garage must be able to check the
    * name on the card against the name on the file.
    *
-   * 404 for an unknown UZA ID and for a UZA ID with no active financed vehicle, so the
+   * 404 for an unknown UZA ID/plate and for one with no active financed vehicle, so the
    * endpoint cannot be used to confirm who is a UZA client.
+   *
+   * Two ways in, per the Mobility Ecosystem Blueprint's Section 11 garage-portal spec
+   * ("plate-number or driver-ID lookup — the same lookup a garage uses"): the client's ID
+   * card (uzaId) when they're physically present, or the plate when the garage only has
+   * the vehicle (a drop-off, a rescue tow) and not the owner in front of them.
    */
-  async lookupVehicleForInspection(userId: string, uzaId: string) {
+  async lookupVehicleForInspection(
+    userId: string,
+    query: { uzaId?: string; plate?: string },
+  ) {
     const mechanic = await this.prisma.mechanic.findUnique({
       where: { userId },
     });
@@ -204,10 +272,13 @@ export class WorkshopService {
     }
     assertMayFileInspection(mechanic);
 
-    const normalised = uzaId.trim().toUpperCase();
+    const where = query.uzaId
+      ? { borrower: { uzaId: query.uzaId.trim().toUpperCase() } }
+      : { vehicle: { plate: query.plate!.trim().toUpperCase() } };
+
     const loans = await this.prisma.loan.findMany({
       where: {
-        borrower: { uzaId: normalised },
+        ...where,
         status: { in: ['DISBURSED', 'ACTIVE', 'IN_ARREARS'] },
       },
       select: {
@@ -269,6 +340,7 @@ export class WorkshopService {
       include: {
         bank: { select: { lenderKey: true, name: true } },
         borrower: { select: { uzaId: true, firstName: true, lastName: true } },
+        vehicle: { select: { condition: true } },
       },
     });
     if (!loan) throw new NotFoundException('Loan not found');
@@ -290,9 +362,13 @@ export class WorkshopService {
           : undefined,
         passed: dto.passed,
         certificateRef: dto.certificateRef,
+        // Cadence-aware: a used car is due again in 30 days, a new one in 90 — see
+        // inspection-economics.ts. Falls back to USED's cadence for a loan whose vehicle
+        // record predates this field (never null in practice, since LoanVehicle defaults
+        // to USED too, but a loan created before LoanVehicle existed at all has none).
         nextDueAt: dto.nextDueAt
           ? new Date(dto.nextDueAt)
-          : defaultNextDue(inspectedAt),
+          : nextInspectionDue(inspectedAt, loan.vehicle?.condition ?? 'USED'),
       },
     });
 

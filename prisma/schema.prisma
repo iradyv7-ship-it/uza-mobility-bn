@@ -4300,6 +4300,39 @@ model Mechanic {
   @@map("mechanics")
 }
 
+enum TrainingCourseSource {
+  CHINESE_OEM
+  LOCAL_RWANDAN
+}
+
+/// A technician-training course surfaced to garages, per the Mobility Ecosystem
+/// Blueprint's Section 05: "an agent continuously pulls available technician training --
+/// Chinese OEM battery/EV-service courses, plus locally-produced content from Rwanda's
+/// own experienced mechanics -- into a structured catalog." This is the catalog storage
+/// only -- deliberately shipped with no seeded course rows. Fabricating plausible-sounding
+/// course titles to make this look populated would be worse than an honestly empty table;
+/// real entries come from a real scouting pass or a real garage partner, never invented.
+model TrainingCourse {
+  id           String               @id @default(cuid())
+  title        String
+  provider     String
+  source       TrainingCourseSource
+  /// ISO 639-1 where known ("zh", "rw", "en"); free text because a real course's language
+  /// mix (e.g. Chinese with English subtitles) doesn't always fit one code.
+  language     String
+  category     WorkCategory
+  url          String?
+  notes        String?
+  addedByRef   String?
+  isActive     Boolean              @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category, isActive])
+  @@map("training_courses")
+}
+
 /// One vehicle's visit, end to end. state only ever moves along the edges in
 /// job-card.state.ts's TRANSITIONS map -- the service layer calls assertTransition()
 /// before every write here, so an illegal state is a 4xx, never a row in this table.
@@ -4457,15 +4490,28 @@ model Loan {
 
 /// The financed vehicle behind a Loan. One loan, one vehicle -- see the doc comment on
 /// Loan.vehicle for why this is not ManagedVehicle.
+/// NEW vs. USED at the point UZA financed it -- not the model year, and not the vehicle's
+/// condition at inspection time (that's VehicleCondition, a different axis entirely). This
+/// is what the Mobility Ecosystem Blueprint's inspection-cadence math (Section 06) actually
+/// keys on: a new car needs 4 inspections a year, a used one needs 12 -- see
+/// inspection-economics.ts, the one place this field is read.
+enum VehicleUnitCondition {
+  NEW
+  USED
+}
+
 model LoanVehicle {
-  id            String   @id @default(cuid())
-  loanId        String   @unique
-  chassisNumber String   @unique
+  id            String               @id @default(cuid())
+  loanId        String               @unique
+  chassisNumber String               @unique
   make          String?
   model         String?
   year          Int?
   color         String?
   plate         String?
+  /// Defaults to USED because most of this programme's vehicles are used imports; set
+  /// explicitly at origination for a genuinely new unit.
+  condition     VehicleUnitCondition @default(USED)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

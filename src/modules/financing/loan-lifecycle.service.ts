@@ -13,6 +13,7 @@ import {
   recalculateForNewTenor,
   UNGUKA_RATE_BANDS,
 } from './loan-terms';
+import { inspectionEconomicsFor } from '../workshop/inspection-economics';
 
 /** Staff roles that do real day-to-day Twara EV / UZA Empower work on a loan file. */
 const LOAN_STAFF_ROLES = ['FINANCE_ADMIN', 'INTAKE_OFFICER', 'SUPER_ADMIN'];
@@ -476,7 +477,15 @@ export class LoanLifecycleService {
       },
     });
     if (!loan) throw new NotFoundException('Loan not found');
-    return loan;
+
+    // The inspection reserve this vehicle's cadence implies — see inspection-economics.ts.
+    // Shown here so a loan's own file already answers "what should this driver be setting
+    // aside for inspections," not just "what do they owe on the loan itself."
+    const inspectionEconomics = inspectionEconomicsFor(
+      loan.vehicle?.condition ?? 'USED',
+    );
+
+    return { ...loan, inspectionEconomics };
   }
 
   async listChangeRequests(loanId: string) {

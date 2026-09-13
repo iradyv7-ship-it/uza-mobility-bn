@@ -43,19 +43,31 @@ export class InspectionsController {
   }
 
   /**
-   * The garage has the client's UZA ID card in hand. This turns it into the loan to file
-   * against and a name to check against the card — and nothing about the loan itself.
+   * The garage has either the client's UZA ID card in hand, or just the vehicle (a
+   * drop-off, a rescue tow) and its plate. Either turns into the loan to file against and
+   * a name to check against the card — never anything about the loan itself.
    */
   @Get('vehicle')
   @ApiOperation({
-    summary: "Find the financed vehicle(s) behind a client's UZA ID",
+    summary:
+      "Find the financed vehicle(s) behind a client's UZA ID or plate number",
   })
-  @ApiQuery({ name: 'uzaId', example: 'UZA-P-2026-000141' })
-  lookup(@Req() request: AuthenticatedRequest, @Query('uzaId') uzaId?: string) {
-    if (!uzaId?.trim()) throw new BadRequestException('uzaId is required');
+  @ApiQuery({ name: 'uzaId', required: false, example: 'UZA-P-2026-000141' })
+  @ApiQuery({ name: 'plate', required: false, example: 'RAD 123 A' })
+  lookup(
+    @Req() request: AuthenticatedRequest,
+    @Query('uzaId') uzaId?: string,
+    @Query('plate') plate?: string,
+  ) {
+    if (!uzaId?.trim() && !plate?.trim()) {
+      throw new BadRequestException('uzaId or plate is required');
+    }
+    if (uzaId?.trim() && plate?.trim()) {
+      throw new BadRequestException('Provide uzaId or plate, not both');
+    }
     return this.workshopService.lookupVehicleForInspection(
       this.requireUserId(request),
-      uzaId,
+      { uzaId: uzaId?.trim(), plate: plate?.trim() },
     );
   }
 

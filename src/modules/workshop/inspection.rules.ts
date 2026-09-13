@@ -92,7 +92,15 @@ export function assertFindingsConsistent(
   }
 }
 
-/** The next monthly inspection falls due 30 days after this one unless the garage says otherwise. */
+/**
+ * The next inspection falls due 30 days after this one unless the garage says otherwise.
+ *
+ * Superseded by `inspection-economics.ts`'s `nextInspectionDue` for any vehicle whose
+ * condition (NEW/USED) is known — that one uses a 90-day cycle for a new car, matching
+ * the Mobility Ecosystem Blueprint's Section 06 economics. This flat 30-day version
+ * remains for the one caller that predates a known vehicle condition (this file's own
+ * test) and as the honest fallback when a loan genuinely has no vehicle record.
+ */
 export function defaultNextDue(inspectedAt: Date): Date {
   return new Date(inspectedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
 }
