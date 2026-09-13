@@ -1,16 +1,24 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import type { LoanStatus, Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import type { RequestAuditContext } from '../../common/audit/request-context.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkshopService } from '../workshop/workshop.service';
 import { AcademyService } from '../academy/academy.service';
+import { worstOf, type Severity } from '../wallet/covenant.rules';
 import { CovenantService } from '../wallet/covenant.service';
 import { WalletService } from '../wallet/wallet.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 /** Staff roles that do real day-to-day Twara EV / UZA Empower work on a loan file. */
 const LOAN_STAFF_ROLES = ['FINANCE_ADMIN', 'INTAKE_OFFICER', 'SUPER_ADMIN'];
+
+/** The loan states the covenant engine evaluates — the same set `CovenantService.forLender` scans. */
+const COVENANT_WATCHED_STATUSES: ReadonlySet<LoanStatus> = new Set<LoanStatus>([
+  'ACTIVE',
+  'IN_ARREARS',
+  'DISBURSED',
+]);
 import type { AskInfoRequestDto } from './dto/ask-info-request.dto';
 import type { CreateCreditNoteDto } from './dto/create-credit-note.dto';
 import type { RecordLenderDecisionDto } from './dto/record-lender-decision.dto';
@@ -246,8 +254,29 @@ export class LenderService {
         vehiclePriceRwf: r.vehiclePriceRwf,
         clientContributionRwf: r.clientContributionRwf,
         ...(await this.equityBreakdown(r.id)),
+        ...(await this.covenantBadge(r.id, r.status)),
       })),
     );
+  }
+
+  /**
+   * The one field per borrower row that says whether the covenant engine has something open
+   * on this loan — so an officer reading the borrowers list does not need the warnings page
+   * to see who needs a call. Only the lender-facing covenants count, the same filter as
+   * `covenantsForLoan`; the row is already inside `disclosureScope`, so consent is honoured.
+   * Loans the engine does not watch (closed, written off, not yet disbursed) carry `null`,
+   * which the portal renders as nothing rather than as "all clear".
+   */
+  private async covenantBadge(
+    loanId: string,
+    status: LoanStatus,
+  ): Promise<{ worst: Severity | null; openWarnings: number }> {
+    if (!COVENANT_WATCHED_STATUSES.has(status)) {
+      return { worst: null, openWarnings: 0 };
+    }
+    const r = await this.covenantService.runForLoan(loanId, new Date(), false);
+    const visible = r.covenants.filter((c) => c.audience.includes('LENDER'));
+    return { worst: worstOf(visible), openWarnings: visible.length };
   }
 
   async disbursements(lender: LenderConfig) {
