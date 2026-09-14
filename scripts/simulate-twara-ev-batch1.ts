@@ -26,12 +26,19 @@
  * Requires: the API running locally (npm run start:dev) against the isolated sim DB.
  */
 
+import { readFileSync } from 'node:fs';
+
 const API = 'http://localhost:7050';
 
 interface Beneficiary {
   sn: number;
   admDate: string; // ISO
   fullName: string;
+  /** Unguka branch and credit officer handling the applicant, from the sheet's Branch column. */
+  branch: string;
+  officer: string;
+  /** Cooperative or association named on the sheet, where one was. */
+  association?: string;
   vehicleDescription: string; // free text as given
   make: string;
   model: string;
@@ -47,27 +54,37 @@ interface Beneficiary {
 }
 
 // Transcribed directly from the founder's own sponsorship list. See the run report for two
+// Source of record: 'CORRECTED FINAL.xlsx' (received 14 Sept 2026), which supersedes the
+// initial sheet. Against the initial sheet it changed two phones (SN4, SN5), the applicant on
+// SN7 (a different person, same vehicle), SN13's chassis, SN15's phone, SN16's price and
+// chassis, and added the Branch column. The database was corrected by hand the same day,
+// with a BATCH1_SHEET_CORRECTED activity entry on each loan carrying the before/after values.
 // flagged data-quality notes (SN14/SN15 share one phone number in the source; several
 // chassis numbers mix visually similar characters (1/I/L, 0/O) and should be verified
 // against the original document before this goes anywhere real).
-const BENEFICIARIES: Beneficiary[] = [
-  { sn: 1, admDate: '2026-08-20', fullName: 'Gisele Tuyisenge', vehicleDescription: 'NETA U 2023', make: 'NETA', model: 'U', year: 2023, color: 'Unspecified', chassisNumber: 'PENDING-SN1-CONFIRM', contributionRwf: 1_500_000, priceRwf: 23_500_000, phone: '0786943123', approved: true, approvedDate: '2026-09-10', approvedBy: 'KCM/Christianne' },
-  { sn: 2, admDate: '2026-08-10', fullName: 'Charite Cyubahiro', vehicleDescription: 'NETA U 2023', make: 'NETA', model: 'U', year: 2023, color: 'Unspecified', chassisNumber: 'PENDING-SN2-CONFIRM', contributionRwf: 1_500_000, priceRwf: 23_500_000, phone: '0788660491', approved: true, approvedDate: '2026-09-10', approvedBy: 'KCM/Christianne' },
-  { sn: 3, admDate: '2026-06-06', fullName: 'Emmanuel Uwizeyimana', vehicleDescription: 'Dongfeng E70 2023 White', make: 'Dongfeng', model: 'E70', year: 2023, color: 'White', chassisNumber: '1DP31B968PG224545' /* as on the sheet; Dongfeng WMI is LDP — confirm against the logbook */, contributionRwf: 500_000, priceRwf: 18_500_000, phone: '0787613076', approved: false },
-  { sn: 4, admDate: '2026-07-02', fullName: 'Fred Uwimana', vehicleDescription: 'Dongfeng E70 2023 White', make: 'Dongfeng', model: 'E70', year: 2023, color: 'White', chassisNumber: 'LDP31B965PG224390', contributionRwf: 500_000, priceRwf: 18_500_000, phone: '0788471076', approved: false },
-  { sn: 5, admDate: '2026-06-18', fullName: 'Eric Niyonzima', vehicleDescription: 'NETA U PRO 2022, Grey', make: 'NETA', model: 'U PRO', year: 2022, color: 'Grey', chassisNumber: 'LUZBGAFB0NA016270', contributionRwf: 2_000_000, priceRwf: 22_800_000, phone: '0789526046', approved: false },
-  { sn: 6, admDate: '2026-06-14', fullName: 'Bosco Turinzwenimana', vehicleDescription: 'NETA U PRO 2022, Brown', make: 'NETA', model: 'U PRO', year: 2022, color: 'Brown', chassisNumber: 'LUZBEAFBINA168896' /* as on the sheet; 'I' is not a VIN character, likely '1' — confirm against the logbook */, contributionRwf: 500_000, priceRwf: 22_800_000, phone: '0781720701', approved: false },
-  { sn: 7, admDate: '2026-06-25', fullName: 'John Musabyimana', vehicleDescription: 'NETA U PRO 2022, White', make: 'NETA', model: 'U PRO', year: 2022, color: 'White', chassisNumber: 'LUZBGAFB6NA008366', contributionRwf: 500_000, priceRwf: 22_800_000, phone: '0788235722', approved: false },
-  { sn: 8, admDate: '2026-07-11', fullName: 'Alex Hakizimana', vehicleDescription: 'NETA U PRO 2022, Sky-Blue', make: 'NETA', model: 'U PRO', year: 2022, color: 'Sky-Blue', chassisNumber: 'LUZBGAFB3MA121059', contributionRwf: 500_000, priceRwf: 22_800_000, phone: '0780759619', approved: false },
-  { sn: 9, admDate: '2026-06-18', fullName: 'Joseph Nkikabahizi', vehicleDescription: 'BYD Yuan Up 2025 Full Option, Grey', make: 'BYD', model: 'Yuan Up', year: 2025, color: 'Grey', chassisNumber: 'LC0CE4DC5S4163710', contributionRwf: 2_000_000, priceRwf: 31_500_000, phone: '0788825856', approved: false },
-  { sn: 10, admDate: '2026-07-08', fullName: 'Abdoul Ngoga', vehicleDescription: 'BYD Yuan Up 2024, Full Opt, Beige', make: 'BYD', model: 'Yuan Up', year: 2024, color: 'Beige', chassisNumber: 'LC0CE4CB4R4874155', contributionRwf: 2_000_000, priceRwf: 29_800_000, phone: '0788633531', approved: false },
-  { sn: 11, admDate: '2026-07-22', fullName: 'Emmanuel Hafashimana', vehicleDescription: 'BYD Yuan Up 2024, Basic Opt, Beige', make: 'BYD', model: 'Yuan Up', year: 2024, color: 'Beige', chassisNumber: 'LC0CE4DC8R4953917', contributionRwf: 2_000_000, priceRwf: 29_200_000, phone: '0789752852', approved: false },
-  { sn: 12, admDate: '2026-08-02', fullName: 'Eric Kabukire', vehicleDescription: 'BYD Yuan Up 2024, Full Opt, Grey', make: 'BYD', model: 'Yuan Up', year: 2024, color: 'Grey', chassisNumber: 'LC0CE4CB1R4172701', contributionRwf: 2_000_000, priceRwf: 29_800_000, phone: '0784945500', approved: false },
-  { sn: 13, admDate: '2026-08-02', fullName: 'Aime Kabukire', vehicleDescription: 'BYD Yuan Up 2025 Full Option, Beige', make: 'BYD', model: 'Yuan Up', year: 2025, color: 'Beige', chassisNumber: 'LC0CE4CB5S4411701', contributionRwf: 2_500_000, priceRwf: 31_500_000, phone: '0788864119', approved: false },
-  { sn: 14, admDate: '2026-09-08', fullName: 'Jonathan Uwizeye', vehicleDescription: 'BYD Yuan Up 2025 Full Option, Beige (Abanyamurava)', make: 'BYD', model: 'Yuan Up', year: 2025, color: 'Beige', chassisNumber: 'LC0CE4CB5S4151209', contributionRwf: 2_000_000, priceRwf: 31_500_000, phone: '0788666044', approved: false },
-  { sn: 15, admDate: '2026-09-08', fullName: 'Emmanuel Nzabahimana', vehicleDescription: 'BYD Yuan Up 2025 Full Option, Light Green', make: 'BYD', model: 'Yuan Up', year: 2025, color: 'Light Green', chassisNumber: 'LC0CE4DC8S4318573', contributionRwf: 2_000_000, priceRwf: 31_500_000, phone: '0788552860', approved: false },
-  { sn: 16, admDate: '2026-09-08', fullName: 'Sylver Uwimana', vehicleDescription: 'BYD Yuan Up 2024, Basic Opt, Grey', make: 'BYD', model: 'Yuan Up', year: 2024, color: 'Grey', chassisNumber: 'LC0CE4CB4R4874156', contributionRwf: 2_000_000, priceRwf: 29_200_000, phone: '0788552488', approved: false },
-];
+/**
+ * The 16 applicants are NOT in this file and must never be: real names, phone numbers and
+ * chassis numbers belong to people who did not consent to being on GitHub (Law No. 058/2021,
+ * and the project rule in the guide's CLAUDE.md). They live in a JSON file outside version
+ * control — the source of record is 'CORRECTED FINAL.xlsx' (14 Sept 2026) — and the path is
+ * supplied at runtime, the same way prisma/seed-tunga-candidates.ts works:
+ *
+ *   BATCH1_CANDIDATES_JSON=/secure/path/batch1-candidates.json npx ts-node scripts/simulate-twara-ev-batch1.ts
+ *
+ * scripts/data/*.local.json is gitignored for a working copy on this machine.
+ */
+function loadBeneficiaries(): Beneficiary[] {
+  const path = process.env.BATCH1_CANDIDATES_JSON;
+  if (!path) {
+    throw new Error(
+      'Refusing to run without BATCH1_CANDIDATES_JSON. The applicants are personal data and are not kept in the repository.',
+    );
+  }
+  const rows = JSON.parse(readFileSync(path, 'utf8')) as Beneficiary[];
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error(`No beneficiaries in ${path}`);
+  return rows;
+}
+const BENEFICIARIES: Beneficiary[] = loadBeneficiaries();
 
 const TENOR_MONTHS = 60; // founder's decision for this batch, see the conversation record
 
