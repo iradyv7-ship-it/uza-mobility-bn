@@ -40,7 +40,9 @@ import type { DailyRecord } from './wallet.rules';
  *
  *  Comprehension      A day-30 or day-90 re-test that falls → WARNING to UZA (coaching),
  *                     not to the lender directly; it reaches the lender in the training
- *                     summary they already read.
+ *                     summary they already read. This is the one rule that does not wait
+ *                     for a live loan: training precedes disbursement, and coaching is
+ *                     most useful before the first instalment.
  *
  * Severity decides the audience. Nothing reaches a lender at NOTICE. Nothing reaches a
  * lender at all without a live consent for that lender — the covenant is the borrower's
