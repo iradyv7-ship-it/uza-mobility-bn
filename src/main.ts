@@ -23,9 +23,10 @@ function corsOrigins(config: ConfigService): string[] {
 
   // Nothing configured: assume local development and allow only localhost.
   return [
-    'http://localhost:5173',
+    'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:3002',
+    'http://localhost:5173',
   ];
 }
 

@@ -14,9 +14,29 @@ import {
 } from './notifications.types';
 import { WsAuthService } from './ws-auth.service';
 
+/**
+ * The same origin list as the HTTP API (CORS_ORIGINS), read at class-definition time because
+ * the gateway decorator runs before Nest's ConfigService exists. `origin: true` would reflect
+ * any caller's Origin header back with credentials — fine on a laptop, not behind a public
+ * load balancer.
+ */
+const wsOrigins = (process.env.CORS_ORIGINS ?? '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 @WebSocketGateway({
   namespace: '/notifications',
-  cors: { origin: true, credentials: true },
+  cors: {
+    origin: wsOrigins.length
+      ? wsOrigins
+      : [
+          'http://localhost:3000',
+          'http://localhost:3001',
+          'http://localhost:5173',
+        ],
+    credentials: true,
+  },
 })
 export class NotificationsGateway
   implements OnGatewayConnection, OnGatewayDisconnect

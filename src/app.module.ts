@@ -5,6 +5,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
+import { HealthController } from './health/health.controller';
 import { AppService } from './app.service';
 import { AuditModule } from './common/audit/audit.module';
 import { AuditInterceptor } from './common/audit/audit.interceptor';
@@ -73,7 +74,17 @@ import { validateEnv } from './config/env.validation';
     MongoModule,
     UploadsModule,
     PdfModule,
-    ScheduleModule.forRoot(),
+    /**
+     * The three scheduled jobs (invoices at midnight, promotions at 01:00, the covenant
+     * morning run at 05:00) must run on exactly one instance. Behind a load balancer with two
+     * API replicas, both would fire and every driver would be warned twice. CRON_ENABLED=false
+     * on all replicas but one — or on all of them, with the jobs triggered by an external
+     * scheduler through the admin endpoints — keeps that from happening. Default is on, so a
+     * single-instance deployment needs no extra configuration.
+     */
+    ...(process.env.CRON_ENABLED?.trim().toLowerCase() === 'false'
+      ? []
+      : [ScheduleModule.forRoot()]),
     PrismaModule,
     AuditModule,
     UsersModule,
@@ -103,7 +114,7 @@ import { validateEnv } from './config/env.validation';
     WalletModule,
     ImpactModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, HealthController],
   providers: [
     // Global. Every route gets the 'default' window; the strict 'auth' window is opted
     // into per route with @Throttle, because a limit that hurts nobody protects nobody.
