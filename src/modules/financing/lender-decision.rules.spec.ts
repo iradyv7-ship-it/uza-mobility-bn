@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import {
+  assertComfortLetterAllowed,
   assertDecisionAllowed,
   loanStatusForDecision,
 } from './lender-decision.rules';
@@ -88,5 +89,33 @@ describe('what a decision does to Loan.status', () => {
     // A conditional approval is not yet a disbursement decision — the loan stays
     // IN_REVIEW until an unconditional decision is recorded.
     expect(loanStatusForDecision('CONDITIONAL')).toBeNull();
+  });
+});
+
+describe('whether a comfort letter may be uploaded', () => {
+  it('refuses one before a decision has even been recorded', () => {
+    for (const status of ['PENDING', 'IN_REVIEW'] as const) {
+      expect(() => assertComfortLetterAllowed(status)).toThrow(
+        BadRequestException,
+      );
+    }
+  });
+
+  it('refuses one once the bank has declined the loan', () => {
+    expect(() => assertComfortLetterAllowed('DECLINED')).toThrow(
+      /needs a recorded APPROVED decision/,
+    );
+  });
+
+  it('allows one from APPROVED onward, including after disbursement and closure', () => {
+    for (const status of [
+      'APPROVED',
+      'DISBURSED',
+      'ACTIVE',
+      'IN_ARREARS',
+      'CLOSED',
+    ] as const) {
+      expect(() => assertComfortLetterAllowed(status)).not.toThrow();
+    }
   });
 });

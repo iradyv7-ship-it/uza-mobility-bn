@@ -59,3 +59,22 @@ export function loanStatusForDecision(
       return null;
   }
 }
+
+/** A comfort letter is the bank's written follow-through on an approval — it makes no
+ * sense before one exists, and refusing it here is cheaper than discovering later that a
+ * PENDING loan somehow has a signed comfort letter on file with no decision behind it. */
+const COMFORT_LETTER_ELIGIBLE_STATUSES: readonly LoanStatus[] = [
+  'APPROVED',
+  'DISBURSED',
+  'ACTIVE',
+  'IN_ARREARS',
+  'CLOSED',
+];
+
+export function assertComfortLetterAllowed(loanStatus: LoanStatus): void {
+  if (!COMFORT_LETTER_ELIGIBLE_STATUSES.includes(loanStatus)) {
+    throw new BadRequestException(
+      `Cannot upload a comfort letter while the loan is still ${loanStatus} — it needs a recorded APPROVED decision first`,
+    );
+  }
+}

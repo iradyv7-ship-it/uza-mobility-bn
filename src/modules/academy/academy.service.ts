@@ -400,6 +400,21 @@ export class AcademyService {
   }
 
   /**
+   * Whether this person has actually finished training — `certified` on the same
+   * `readinessSummary` a lender already reads, not a second, differently-computed notion
+   * of "done." Not wired to any loan-application gate yet: whether self-service loan
+   * applications are gated on this at all is an open design question (the founder's
+   * "apply after completing training" request vs. `FundApplicationController`'s
+   * deliberate oral-first, staff-assisted design) — see the 2026-09-14 lender-portal
+   * memory. Exists now so whichever side of that question is answered, the check itself
+   * doesn't need inventing from scratch.
+   */
+  async isCertifiedForLoanApplication(userId: string): Promise<boolean> {
+    const summary = await this.summaryForUser(userId);
+    return summary.certified;
+  }
+
+  /**
    * The impact report: what the academy has delivered, what it cost, and whether the
    * claim made to lenders — trained drivers repay better — holds on the data so far.
    *

@@ -22,7 +22,10 @@ const COVENANT_WATCHED_STATUSES: ReadonlySet<LoanStatus> = new Set<LoanStatus>([
 import type { AskInfoRequestDto } from './dto/ask-info-request.dto';
 import type { CreateCreditNoteDto } from './dto/create-credit-note.dto';
 import type { RecordLenderDecisionDto } from './dto/record-lender-decision.dto';
+import type { UploadComfortLetterDto } from './dto/upload-comfort-letter.dto';
+import type { UploadComfortLetterTemplateDto } from './dto/upload-comfort-letter-template.dto';
 import {
+  assertComfortLetterAllowed,
   assertDecisionAllowed,
   loanStatusForDecision,
 } from './lender-decision.rules';
@@ -649,5 +652,132 @@ export class LenderService {
       where: { loanId },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /**
+   * A bank uploads its own comfort-letter template once, reused for every loan it
+   * approves. Deliberately a Bank-level field, not per-loan — the template itself never
+   * changes loan to loan, only what a bank staff member fills in and signs on top of it.
+   */
+  async uploadComfortLetterTemplate(
+    lender: LenderConfig,
+    dto: UploadComfortLetterTemplateDto,
+    actorUserId: string,
+  ) {
+    const bankId = await this.resolveBankId(lender);
+    if (!bankId) {
+      throw new NotFoundException(
+        `${lender.name} has no bank record on file yet`,
+      );
+    }
+
+    const bank = await this.prisma.bank.update({
+      where: { id: bankId },
+      data: {
+        comfortLetterTemplateUrl: dto.fileUrl,
+        comfortLetterTemplateUploadedAt: new Date(),
+        comfortLetterTemplateUploadedBy: actorUserId,
+      },
+    });
+
+    await this.auditService.record({
+      userId: actorUserId,
+      action: 'lender:comfort-letter-template-uploaded',
+      entity: 'Bank',
+      entityId: bankId,
+      metadata: { lenderKey: lender.key },
+    });
+
+    return bank;
+  }
+
+  /**
+   * The bank's signed comfort letter for one loan — printed from its template, signed,
+   * scanned, and uploaded here. This is also the one event that moves `LoanVehicle`
+   * ownership from UZA to the client: the comfort letter is the bank's written
+   * confirmation the loan is real, and that confirmation is what the ownership transfer
+   * has been waiting on the whole time. The real-world registration change at RURA
+   * happens outside this system; this just records the fact once it's true.
+   */
+  async uploadComfortLetter(
+    lender: LenderConfig,
+    loanId: string,
+    dto: UploadComfortLetterDto,
+    actorUserId: string,
+  ) {
+    const loan = await this.requireOwnLoan(lender, loanId);
+    assertComfortLetterAllowed(loan.status);
+
+    const { comfortLetter, vehicle } = await this.prisma.$transaction(
+      async (tx) => {
+        const letter = await tx.loanComfortLetter.upsert({
+          where: { loanId },
+          create: {
+            loanId,
+            fileUrl: dto.fileUrl,
+            notes: dto.notes ?? null,
+            uploadedByRef: actorUserId,
+          },
+          update: {
+            fileUrl: dto.fileUrl,
+            notes: dto.notes ?? null,
+            uploadedByRef: actorUserId,
+            uploadedAt: new Date(),
+          },
+        });
+
+        // Never move a vehicle "back" to company-owned by re-uploading a letter — the
+        // transfer, once real, stays real. Only the first upload can trigger it.
+        const existingVehicle = await tx.loanVehicle.findUnique({
+          where: { loanId },
+        });
+        const transferred =
+          existingVehicle && existingVehicle.ownershipStatus === 'COMPANY_OWNED'
+            ? await tx.loanVehicle.update({
+                where: { loanId },
+                data: {
+                  ownershipStatus: 'TRANSFERRED_TO_CLIENT',
+                  ownershipTransferredAt: new Date(),
+                },
+              })
+            : existingVehicle;
+
+        return { comfortLetter: letter, vehicle: transferred };
+      },
+    );
+
+    await this.auditService.record({
+      userId: actorUserId,
+      action: 'lender:comfort-letter-uploaded',
+      entity: 'Loan',
+      entityId: loanId,
+      metadata: {
+        lenderKey: lender.key,
+        ownershipTransferred:
+          vehicle?.ownershipStatus === 'TRANSFERRED_TO_CLIENT',
+      },
+    });
+
+    await Promise.all([
+      this.notificationsService.sendToRoleNames(LOAN_STAFF_ROLES, {
+        type: 'FINANCING_UPDATE',
+        title: `${lender.name}: comfort letter uploaded`,
+        body: `${lender.name} uploaded the signed comfort letter for loan ${loanId}.${
+          vehicle?.ownershipStatus === 'TRANSFERRED_TO_CLIENT'
+            ? ' Vehicle ownership is now recorded as transferred to the client.'
+            : ''
+        }`,
+        metadata: { loanId, lenderKey: lender.key },
+      }),
+      this.notificationsService.send({
+        userId: loan.borrowerUserId,
+        type: 'FINANCING_UPDATE',
+        title: `${lender.name}: your comfort letter is in`,
+        body: `${lender.name} has issued your comfort letter — your loan is confirmed in writing. UZA will be in touch about the next step.`,
+        metadata: { loanId, lenderKey: lender.key },
+      }),
+    ]);
+
+    return comfortLetter;
   }
 }

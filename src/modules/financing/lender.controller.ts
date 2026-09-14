@@ -16,6 +16,8 @@ import { AskInfoRequestDto } from './dto/ask-info-request.dto';
 import { CreateCreditNoteDto } from './dto/create-credit-note.dto';
 import { RecordLenderDecisionDto } from './dto/record-lender-decision.dto';
 import { RequestLoanChangeDto } from './dto/request-loan-change.dto';
+import { UploadComfortLetterDto } from './dto/upload-comfort-letter.dto';
+import { UploadComfortLetterTemplateDto } from './dto/upload-comfort-letter-template.dto';
 import type { LenderConfig } from './lenders.registry';
 import { LenderAccessGuard } from './guards/lender-access.guard';
 import { LenderService } from './lender.service';
@@ -205,6 +207,40 @@ export class LenderController {
     @Body() dto: RecordLenderDecisionDto,
   ) {
     return this.lenderService.recordDecision(
+      this.requireLender(request),
+      loanId,
+      dto,
+      this.requireUserId(request),
+    );
+  }
+
+  @Post('comfort-letter-template')
+  @ApiOperation({
+    summary:
+      "Upload this bank's own comfort-letter template, reused for every loan it approves",
+  })
+  uploadComfortLetterTemplate(
+    @Req() request: LenderScopedRequest,
+    @Body() dto: UploadComfortLetterTemplateDto,
+  ) {
+    return this.lenderService.uploadComfortLetterTemplate(
+      this.requireLender(request),
+      dto,
+      this.requireUserId(request),
+    );
+  }
+
+  @Post('loans/:loanId/comfort-letter')
+  @ApiOperation({
+    summary:
+      'Upload the signed comfort letter for one of this bank’s own loans — triggers the vehicle ownership-transfer record',
+  })
+  uploadComfortLetter(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+    @Body() dto: UploadComfortLetterDto,
+  ) {
+    return this.lenderService.uploadComfortLetter(
       this.requireLender(request),
       loanId,
       dto,

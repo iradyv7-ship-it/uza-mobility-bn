@@ -1068,6 +1068,13 @@ model Bank {
   /// no lender portal of its own yet.
   lenderKey String? @unique
 
+  /// The bank's own comfort-letter template — uploaded once by the bank itself via the
+  /// lender portal, reused for every loan they approve rather than re-uploaded each time.
+  comfortLetterTemplateUrl        String?
+  comfortLetterTemplateUploadedAt DateTime?
+  /// Bank staff userId, not a UZA staff id — this is the bank's own document.
+  comfortLetterTemplateUploadedBy String?
+
   financingRequests    FinancingRequest[]
   loans                Loan[]
   collateralEntries    CollateralEntry[]
@@ -4483,6 +4490,8 @@ model Loan {
   /// Change requests raised against this loan (by a lender or UZA staff) that require a
   /// second person's sign-off before they take effect -- see LoanChangeRequest.
   changeRequests    LoanChangeRequest[]
+  /// The bank's signed comfort letter, once uploaded -- see LoanComfortLetter.
+  comfortLetter     LoanComfortLetter?
 
   @@index([bankId, status])
   @@map("loans")
@@ -4500,6 +4509,16 @@ enum VehicleUnitCondition {
   USED
 }
 
+/// Who legally owns the vehicle right now. UZA (or its holding entity) holds title while
+/// the loan is being repaid; it moves to the client once the bank's comfort letter lands
+/// and the real-world registration change is done. This field records the fact for the
+/// system's own purposes — it does not perform the legal transfer itself, which happens
+/// at RURA, not here.
+enum VehicleOwnershipStatus {
+  COMPANY_OWNED
+  TRANSFERRED_TO_CLIENT
+}
+
 model LoanVehicle {
   id            String               @id @default(cuid())
   loanId        String               @unique
@@ -4513,12 +4532,39 @@ model LoanVehicle {
   /// explicitly at origination for a genuinely new unit.
   condition     VehicleUnitCondition @default(USED)
 
+  ownershipStatus        VehicleOwnershipStatus @default(COMPANY_OWNED)
+  /// Set once, the moment ownershipStatus flips to TRANSFERRED_TO_CLIENT — never moved
+  /// back, the same append-once discipline as everything else that records when
+  /// something real actually happened.
+  ownershipTransferredAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
 
   @@map("loan_vehicles")
+}
+
+/// The bank's signed comfort letter for one loan — the document that both confirms the
+/// bank's approval in writing and is what triggers LoanVehicle's ownership transfer. One
+/// per loan: a re-upload replaces the file reference, it does not create a second row,
+/// since there is only ever one live comfort letter for a given loan.
+model LoanComfortLetter {
+  id       String @id @default(cuid())
+  loanId   String @unique
+  fileUrl  String
+  /// Bank staff userId — this is the bank's own signed document, not UZA's.
+  uploadedByRef String
+  uploadedAt    DateTime @default(now())
+  notes         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@map("loan_comfort_letters")
 }
 
 /// One tenor change applied to a loan -- e.g. 36 months stretched to 60 because the
@@ -4722,7 +4768,9 @@ model LenderConsent {
   withdrawnAt DateTime?
 
   /// How it was captured, and by whom if a staff member recorded it.
-  source        ConsentSource @default(IN_APP)
+  source        ConsentSource   @default(IN_APP)
+  /// Which language the consent text was actually presented and signed in.
+  language      ConsentLanguage @default(EN)
   capturedByRef String?
   note          String?
 
@@ -4743,6 +4791,14 @@ enum ConsentSource {
   IN_APP
   SIGNED_FORM
   STAFF_RECORDED
+}
+
+/// Which language the consent text was actually shown and signed in. A legal requirement
+/// per Yves ("as per the law") — English and Kinyarwanda both need to be real, presented
+/// options, not just English with a Kinyarwanda translation nobody actually signs against.
+enum ConsentLanguage {
+  EN
+  RW
 }
 
 model CollateralEntry {
