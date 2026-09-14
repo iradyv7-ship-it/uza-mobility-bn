@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { garageNetworkRevenue } from '../workshop/inspection-economics';
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 
 /**
  * One shared impact ledger, read many ways — Mobility Ecosystem Blueprint, Section 10:
@@ -27,7 +28,10 @@ import { garageNetworkRevenue } from '../workshop/inspection-economics';
  */
 @Injectable()
 export class ImpactService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly platformSettingsService: PlatformSettingsService,
+  ) {}
 
   /**
    * The funder/DFI view: aggregate, anonymised, no borrower ever named. "UZA Empower
@@ -97,6 +101,10 @@ export class ImpactService {
     const activeLoans = await this.prisma.loan.count({
       where: { status: { in: ['DISBURSED', 'ACTIVE', 'IN_ARREARS'] } },
     });
+    // Whatever a SUPER_ADMIN currently has set in Platform Settings, not the old hardcoded
+    // 15,000 constant — the revenue roll-up has to reflect the real, current rate.
+    const inspectionRateRwf =
+      await this.platformSettingsService.getInspectionRateRwf();
 
     return {
       loansOriginated: loanStats._count,
@@ -106,7 +114,10 @@ export class ImpactService {
       outstandingRwf: loanStats._sum.outstandingRwf ?? 0,
       arrearsRwf: loanStats._sum.arrearsRwf ?? 0,
       inspectionsFiled,
-      garageNetworkRevenue: garageNetworkRevenue(inspectionsFiled),
+      garageNetworkRevenue: garageNetworkRevenue(
+        inspectionsFiled,
+        inspectionRateRwf,
+      ),
       gaps: {
         chargingNetworkHealth:
           'Not included — charging-network utilisation lives in uza-charge, a separate system not touched in this pass. Aggregating it here would mean either faking the number or reaching into another repo’s database directly; neither is done.',

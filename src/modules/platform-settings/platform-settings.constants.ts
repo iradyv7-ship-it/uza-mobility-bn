@@ -10,6 +10,10 @@ export const PLATFORM_SETTING_KEYS = {
   usdToRwfApi: 'usdToRwfApi',
   usdToRwfEffective: 'usdToRwfEffective',
   rateFetchedAt: 'rateFetchedAt',
+  /** The contracted per-visit inspection fee — see inspection-economics.ts's header comment.
+   * Was a hardcoded constant; now the one number a SUPER_ADMIN can actually change once a
+   * real garage rate is negotiated, without a deploy. */
+  inspectionRateRwf: 'inspectionRateRwf',
 } as const;
 
 export type PlatformSettingKey =
@@ -28,6 +32,9 @@ export const DEFAULT_PLATFORM_SETTINGS: Record<PlatformSettingKey, string> = {
   usdToRwfApi: '',
   usdToRwfEffective: '',
   rateFetchedAt: '',
+  // ⚠ ASSUMPTION, not negotiated with any real garage — see inspection-economics.ts.
+  // This default only applies until a SUPER_ADMIN sets a real one in Platform Settings.
+  inspectionRateRwf: '15000',
 };
 
 export const DEFAULT_BOOKING_FEE_USD = Number(
@@ -36,6 +43,10 @@ export const DEFAULT_BOOKING_FEE_USD = Number(
 
 export const DEFAULT_RWF_MARKUP_PERCENT = Number(
   DEFAULT_PLATFORM_SETTINGS.rwfMarkupPercent,
+);
+
+export const DEFAULT_INSPECTION_RATE_RWF = Number(
+  DEFAULT_PLATFORM_SETTINGS.inspectionRateRwf,
 );
 
 export type ExchangeRateSnapshot = {
@@ -49,6 +60,7 @@ export type ExchangeRateSnapshot = {
 
 export type PlatformSettingsSnapshot = {
   bookingFeeUsd: number;
+  inspectionRateRwf: number;
   companyLegalName: string;
   companyBankName: string;
   companyAccountNumber: string;

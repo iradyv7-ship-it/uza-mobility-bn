@@ -13,8 +13,14 @@
  * split below are the blueprint's own proposed structure, reasoned from "a scheduled
  * checklist visit costs a garage less to deliver than an unknown-fault diagnosis." They
  * are not yet agreed with any real garage partner — see the blueprint's Section 13, open
- * question 3. Treat CONTRACTED_INSPECTION_RATE_RWF as the one constant to change once a
- * real rate is negotiated; nothing else in this file needs to move if it does.
+ * question 3.
+ *
+ * CONTRACTED_INSPECTION_RATE_RWF below is only the seeded default. The live rate is a
+ * Platform Setting (`PlatformSettingsService.getInspectionRateRwf()`, key
+ * `inspectionRateRwf`) a SUPER_ADMIN can edit from Admin → Platform Settings the moment a
+ * real rate is negotiated — no deploy needed. Every function here still takes the rate as
+ * a plain parameter (never reaches into the database itself), so it stays a pure,
+ * unit-testable rules file; callers are responsible for fetching the current rate first.
  */
 
 import type { VehicleUnitCondition } from '@prisma/client';

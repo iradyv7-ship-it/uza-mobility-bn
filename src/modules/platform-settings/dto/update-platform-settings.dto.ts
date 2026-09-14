@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -14,6 +15,16 @@ export class UpdatePlatformSettingsDto {
   @IsNumber()
   @Min(0.01)
   bookingFeeUsd?: number;
+
+  /** The contracted per-visit inspection fee (whole RWF, never a float — see
+   * inspection-economics.ts). Floored at 1,000 and capped at 500,000 as a sanity check
+   * against a fat-fingered entry, not a real business limit. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1_000)
+  @Max(500_000)
+  inspectionRateRwf?: number;
 
   @IsOptional()
   @IsString()

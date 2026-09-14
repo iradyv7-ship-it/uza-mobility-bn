@@ -14,6 +14,7 @@ import {
   UNGUKA_RATE_BANDS,
 } from './loan-terms';
 import { inspectionEconomicsFor } from '../workshop/inspection-economics';
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 
 /** Staff roles that do real day-to-day Twara EV / UZA Empower work on a loan file. */
 const LOAN_STAFF_ROLES = ['FINANCE_ADMIN', 'INTAKE_OFFICER', 'SUPER_ADMIN'];
@@ -75,6 +76,7 @@ export class LoanLifecycleService {
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
     private readonly auditService: AuditService,
+    private readonly platformSettingsService: PlatformSettingsService,
   ) {}
 
   private bandsFor(lenderKey: string) {
@@ -480,9 +482,13 @@ export class LoanLifecycleService {
 
     // The inspection reserve this vehicle's cadence implies — see inspection-economics.ts.
     // Shown here so a loan's own file already answers "what should this driver be setting
-    // aside for inspections," not just "what do they owe on the loan itself."
+    // aside for inspections," not just "what do they owe on the loan itself." The rate is
+    // whatever a SUPER_ADMIN currently has set in Platform Settings, not a hardcoded guess.
+    const inspectionRateRwf =
+      await this.platformSettingsService.getInspectionRateRwf();
     const inspectionEconomics = inspectionEconomicsFor(
       loan.vehicle?.condition ?? 'USED',
+      inspectionRateRwf,
     );
 
     return { ...loan, inspectionEconomics };

@@ -6,6 +6,7 @@ import type { UpdatePlatformSettingsDto } from './dto/update-platform-settings.d
 import { ExchangeRateService } from './exchange-rate.service';
 import {
   DEFAULT_BOOKING_FEE_USD,
+  DEFAULT_INSPECTION_RATE_RWF,
   DEFAULT_PLATFORM_SETTINGS,
   PLATFORM_SETTING_KEYS,
   type CompanyPaymentDetails,
@@ -39,6 +40,18 @@ export class PlatformSettingsService {
     return Number.isFinite(parsed) && parsed > 0
       ? parsed
       : DEFAULT_BOOKING_FEE_USD;
+  }
+
+  /** The contracted inspection fee — see inspection-economics.ts's header comment. Was a
+   * hardcoded constant; a SUPER_ADMIN can now change it once a real garage rate is agreed,
+   * without a deploy. Every caller that priced an inspection off the old constant reads
+   * this instead. */
+  async getInspectionRateRwf(): Promise<number> {
+    const raw = await this.getString(PLATFORM_SETTING_KEYS.inspectionRateRwf);
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0
+      ? parsed
+      : DEFAULT_INSPECTION_RATE_RWF;
   }
 
   async getCompanyPaymentDetails(): Promise<CompanyPaymentDetails> {
@@ -76,6 +89,7 @@ export class PlatformSettingsService {
 
   async getSettings(): Promise<PlatformSettingsSnapshot> {
     const bookingFeeUsd = await this.getBookingFeeUsd();
+    const inspectionRateRwf = await this.getInspectionRateRwf();
     const company = await this.getCompanyPaymentDetails();
     const exchangeRate = await this.exchangeRateService.getSnapshot({
       refreshIfStale: false,
@@ -83,6 +97,7 @@ export class PlatformSettingsService {
 
     return {
       bookingFeeUsd,
+      inspectionRateRwf,
       companyLegalName: company.legalName,
       companyBankName: company.usd.bankName,
       companyAccountNumber: company.usd.accountNumber,
@@ -106,6 +121,12 @@ export class PlatformSettingsService {
       updates.push({
         key: PLATFORM_SETTING_KEYS.bookingFeeUsd,
         value: String(dto.bookingFeeUsd),
+      });
+    }
+    if (dto.inspectionRateRwf != null) {
+      updates.push({
+        key: PLATFORM_SETTING_KEYS.inspectionRateRwf,
+        value: String(dto.inspectionRateRwf),
       });
     }
     if (dto.companyLegalName != null) {

@@ -17,6 +17,7 @@ import { LoanLifecycleService } from './loan-lifecycle.service';
 import { AcademyModule } from '../academy/academy.module';
 import { EmpowerSupportController } from './empower-support.controller';
 import { WalletModule } from '../wallet/wallet.module';
+import { PlatformSettingsModule } from '../platform-settings/platform-settings.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { WalletModule } from '../wallet/wallet.module';
     WorkshopModule,
     AcademyModule,
     WalletModule,
+    PlatformSettingsModule,
     forwardRef(() => UsersModule),
   ],
   controllers: [
