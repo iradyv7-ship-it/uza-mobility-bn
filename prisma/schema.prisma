@@ -125,6 +125,7 @@ model User {
 
   @@index([uzaId])
   @@map("users")
+  fundApplicationDocuments FundApplicationDocument[] @relation("FundApplicationDocumentUploader")
 }
 
 model UserRole {
@@ -3989,12 +3990,62 @@ model FundApplication {
 
   /// Consents signed on this application, before a UZA ID exists to hang them on.
   lenderConsents LenderConsent[]
+  documents      FundApplicationDocument[]
 
   @@index([status])
   @@index([uzaId])
   @@index([cohortId])
   @@index([nationalId])
   @@map("fund_applications")
+}
+
+/// A document filed against an application — above all the SIGNED paper form
+/// (UZA-EMP-F01), scanned and uploaded by the head of UZA Mobility or an assigned
+/// employee once the applicant has signed in front of a witness.
+///
+/// Append-only by design. There is no update and no delete: a wrong file is superseded by
+/// a new row that names the one it replaces, and both stay. Every row is engraved against
+/// the employee's account — user id, UZA ID and name at the time — with a SHA-256 of the
+/// bytes, so that years later anyone can prove which person filed which exact file, and
+/// that it has not changed since. The bytes live in the PRIVATE GridFS bucket, never in the
+/// public `uploads` bucket that `/uploads/*` streams to anyone holding the URL.
+model FundApplicationDocument {
+  id                String                      @id @default(cuid())
+  fundApplicationId String
+  kind              FundApplicationDocumentKind
+
+  /// GridFS filename in the private bucket. Unguessable; never a public URL.
+  fileRef      String @unique
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  sha256       String
+
+  uploadedByUserId String
+  uploadedByUzaId  String?
+  uploadedByName   String
+  uploadedAt       DateTime @default(now())
+  note             String?
+
+  /// Set when this file replaces an earlier one. The earlier row is never removed.
+  supersedesId String? @unique
+
+  application FundApplication          @relation(fields: [fundApplicationId], references: [id], onDelete: Restrict)
+  uploadedBy  User                     @relation("FundApplicationDocumentUploader", fields: [uploadedByUserId], references: [id])
+  supersedes  FundApplicationDocument? @relation("FundApplicationDocumentSupersedes", fields: [supersedesId], references: [id])
+  supersededBy FundApplicationDocument? @relation("FundApplicationDocumentSupersedes")
+
+  @@index([fundApplicationId, kind, uploadedAt])
+  @@index([uploadedByUserId, uploadedAt])
+  @@map("fund_application_documents")
+}
+
+enum FundApplicationDocumentKind {
+  SIGNED_FORM // the signed UZA-EMP-F01, all pages
+  NATIONAL_ID
+  DRIVING_LICENCE
+  PROOF_OF_SAVINGS
+  OTHER
 }
 
 enum FundApplicationStatus {

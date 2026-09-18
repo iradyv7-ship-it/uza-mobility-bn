@@ -42,4 +42,17 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       this.config.get<string>('GRIDFS_BUCKET_NAME')?.trim() || 'uploads';
     return new GridFSBucket(this.getDb(), { bucketName });
   }
+
+  /**
+   * Files that must never be reachable by URL alone: signed application forms, identity
+   * documents, anything with a national ID number on it. `/uploads/*` streams the uploads
+   * bucket to anyone who holds the path; this bucket has no such route, and is read only by
+   * services that check who is asking first.
+   */
+  getPrivateDocumentsBucket(): GridFSBucket {
+    const bucketName =
+      this.config.get<string>('GRIDFS_PRIVATE_BUCKET_NAME')?.trim() ||
+      'private_documents';
+    return new GridFSBucket(this.getDb(), { bucketName });
+  }
 }

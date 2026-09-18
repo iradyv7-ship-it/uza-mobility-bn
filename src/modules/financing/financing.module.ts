@@ -9,6 +9,7 @@ import { AdminLoansController } from './admin-loans.controller';
 import { FinancingController } from './financing.controller';
 import { FinancingService } from './financing.service';
 import { FundApplicationController } from './fund-application.controller';
+import { FundApplicationDocumentsService } from './fund-application-documents.service';
 import { FundApplicationService } from './fund-application.service';
 import { LenderController } from './lender.controller';
 import { LenderRequirementsService } from './lender-requirements.service';
@@ -42,6 +43,7 @@ import { PlatformSettingsModule } from '../platform-settings/platform-settings.m
     FinancingService,
     LenderService,
     FundApplicationService,
+    FundApplicationDocumentsService,
     LenderRequirementsService,
     LoanLifecycleService,
   ],
