@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "resolvePackageJsonExports": false,
+    "emitDecoratorMetadata": false,
+    "experimentalDecorators": false,
+    "outDir": "../dist-express",
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "../dist", "../dist-express"]
+}
