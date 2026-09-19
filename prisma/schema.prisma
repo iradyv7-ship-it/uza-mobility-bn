@@ -4506,14 +4506,23 @@ model Loan {
   monthlyRwf        Int
   dailyRwf          Int
   totalRepayableRwf Int
+  /// What remains to be repaid. Before disbursement this equals the principal (what the
+  /// bank would lend); from disbursement it is totalRepayableRwf - paidRwf, so a lender's
+  /// "balance" is the figure the driver still owes, interest included, not a static quote.
   outstandingRwf    Int
+  /// Instalments due to date that have not been paid, recomputed nightly and on every
+  /// repayment: max(0, monthlyRwf x months elapsed since disbursement - paidRwf).
   arrearsRwf        Int        @default(0)
+  /// Every repayment recorded, in RWF. The only writer is LoanServicingService.
+  paidRwf           Int        @default(0)
   status            LoanStatus @default(PENDING)
   disbursedAt       DateTime?
+  closedAt          DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  repayments        LoanRepayment[]
   bank              Bank                @relation(fields: [bankId], references: [id])
   borrower          User                @relation("LoanBorrower", fields: [borrowerUserId], references: [id])
   financingRequest  FinancingRequest?   @relation(fields: [financingRequestId], references: [id])
@@ -4568,6 +4577,35 @@ enum VehicleUnitCondition {
 enum VehicleOwnershipStatus {
   COMPANY_OWNED
   TRANSFERRED_TO_CLIENT
+}
+
+/// One repayment against a loan, as the lender's file or a staff member records it.
+/// Idempotent on (loan, reference): a file imported twice records nothing twice. Recording a
+/// repayment also writes an INSTALMENT_SWEEP line in the borrower's wallet, so the driver's
+/// statement shows the money leaving for the instalment on the day the bank says it did.
+model LoanRepayment {
+  id        String              @id @default(cuid())
+  loanId    String
+  amountRwf Int
+  paidAt    DateTime
+  /// The lender's own reference for the receipt / standing-order line. Unique per loan.
+  reference String
+  source    LoanRepaymentSource
+  recordedByUserId String?
+  note      String?
+  createdAt DateTime @default(now())
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Restrict)
+
+  @@unique([loanId, reference])
+  @@index([loanId, paidAt])
+  @@map("loan_repayments")
+}
+
+enum LoanRepaymentSource {
+  LENDER_FILE // imported from the bank's repayment statement
+  MANUAL // typed by finance from a receipt
+  SWEEP // reported by the bank's standing-order execution
 }
 
 model LoanVehicle {

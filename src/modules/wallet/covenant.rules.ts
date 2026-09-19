@@ -66,6 +66,7 @@ export interface Covenant {
     | 'DEPOSIT_MISSED'
     | 'DEPOSIT_UNRECONCILED'
     | 'DEPOSIT_SHORT'
+    | 'INSTALMENT_ARREARS'
     | 'INSPECTION_OVERDUE'
     | 'INSPECTION_MISSING'
     | 'INSPECTION_FAILED_SAFETY'
@@ -95,6 +96,9 @@ export interface CovenantInput {
     reference: string;
     disbursedAt: Date | null;
     status: string;
+    /** From loan servicing: instalments due and unpaid, in francs, and one instalment's size. */
+    arrearsRwf?: number;
+    monthlyRwf?: number;
   } | null;
   inspection: {
     lastAt: Date | null;
@@ -217,6 +221,34 @@ export function evaluateCovenants(input: CovenantInput): Covenant[] {
         loanRef: input.loan?.reference ?? null,
       },
       dedupeKey: `DEPOSIT_UNRECONCILED:${today}`,
+    });
+  }
+
+  // ── Instalments: the bank's own book says money is overdue ─────────────────────────
+  // Deposits are the leading indicator; arrears are the fact. Any arrears is a WARNING to
+  // the driver and UZA; a full instalment behind is an ALERT the lender also sees — it is
+  // their money, and the point of the covenant is that nobody is surprised.
+  if (active && input.loan?.arrearsRwf && input.loan.arrearsRwf > 0) {
+    const monthly = input.loan.monthlyRwf ?? 0;
+    const behind =
+      monthly > 0 ? Math.floor(input.loan.arrearsRwf / monthly) : 0;
+    const severity: Severity = behind >= 1 ? 'ALERT' : 'WARNING';
+    out.push({
+      kind: 'INSTALMENT_ARREARS',
+      severity,
+      audience:
+        severity === 'ALERT' ? ['DRIVER', 'UZA', 'LENDER'] : ['DRIVER', 'UZA'],
+      message:
+        severity === 'ALERT'
+          ? `Your loan is ${behind} instalment${behind === 1 ? '' : 's'} behind (RWF ${input.loan.arrearsRwf.toLocaleString('en-RW')}). Your lender can see this. Call UZA today — a restructure is possible before it is not.`
+          : `RWF ${input.loan.arrearsRwf.toLocaleString('en-RW')} of this month's instalment is overdue. Press "Call before you miss" — it is a conversation while it is small.`,
+      detail: {
+        arrearsRwf: input.loan.arrearsRwf,
+        monthlyRwf: monthly,
+        instalmentsBehind: behind,
+        loanRef: input.loan.reference,
+      },
+      dedupeKey: `INSTALMENT_ARREARS:${today}:${severity}`,
     });
   }
 

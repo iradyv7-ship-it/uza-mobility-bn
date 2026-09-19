@@ -173,6 +173,21 @@ export class LenderController {
     );
   }
 
+  @Get('loans/:loanId/repayments')
+  @ApiOperation({
+    summary:
+      'The repayment record: paid, outstanding, arrears and every receipt, as serviced from your own file',
+  })
+  repayments(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+  ) {
+    return this.lenderService.repaymentsForLoan(
+      this.requireLender(request),
+      loanId,
+    );
+  }
+
   @Get('loans/:loanId/savings')
   @ApiOperation({
     summary: "A borrower's daily savings against their required payment",

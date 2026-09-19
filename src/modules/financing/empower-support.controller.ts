@@ -127,7 +127,7 @@ export class EmpowerSupportController {
 }
 
 /** First worksheet → keyed rows, header row first. Dates and rich text flattened to text. */
-async function readFirstSheet(
+export async function readFirstSheet(
   buffer: Buffer,
 ): Promise<Record<string, unknown>[]> {
   // exceljs is CommonJS; under a compiled dynamic import the module lands on `.default`.

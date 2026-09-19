@@ -120,6 +120,8 @@ export class CovenantService {
         reference: loan.reference,
         disbursedAt: loan.disbursedAt,
         status: loan.status,
+        arrearsRwf: loan.arrearsRwf,
+        monthlyRwf: loan.monthlyRwf,
       },
       inspection: {
         lastAt: last?.inspectedAt ?? null,

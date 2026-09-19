@@ -408,6 +408,27 @@ export class LenderService {
     return this.walletService.performanceForUser(loan.borrowerUserId);
   }
 
+  /** The repayment record on one loan — the lender's own book, shown back to it, consent-gated like everything else. */
+  async repaymentsForLoan(lender: LenderConfig, loanId: string) {
+    const loan = await this.requireOwnLoan(lender, loanId);
+    const rows = await this.prisma.loanRepayment.findMany({
+      where: { loanId },
+      orderBy: { paidAt: 'desc' },
+      select: { amountRwf: true, paidAt: true, reference: true, source: true },
+    });
+    return {
+      loanRef: loan.reference,
+      disbursedAt: loan.disbursedAt,
+      totalRepayableRwf: loan.totalRepayableRwf,
+      paidRwf: loan.paidRwf,
+      outstandingRwf: loan.outstandingRwf,
+      arrearsRwf: loan.arrearsRwf,
+      monthlyRwf: loan.monthlyRwf,
+      status: loan.status,
+      repayments: rows,
+    };
+  }
+
   /** Open covenant warnings on one loan, as the covenant engine computes them right now. */
   async covenantsForLoan(lender: LenderConfig, loanId: string) {
     await this.requireOwnLoan(lender, loanId);

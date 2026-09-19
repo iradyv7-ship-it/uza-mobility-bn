@@ -15,6 +15,7 @@ import { LenderController } from './lender.controller';
 import { LenderRequirementsService } from './lender-requirements.service';
 import { LenderService } from './lender.service';
 import { LoanLifecycleService } from './loan-lifecycle.service';
+import { LoanServicingService } from './loan-servicing.service';
 import { AcademyModule } from '../academy/academy.module';
 import { EmpowerSupportController } from './empower-support.controller';
 import { WalletModule } from '../wallet/wallet.module';
@@ -46,6 +47,7 @@ import { PlatformSettingsModule } from '../platform-settings/platform-settings.m
     FundApplicationDocumentsService,
     LenderRequirementsService,
     LoanLifecycleService,
+    LoanServicingService,
   ],
   exports: [
     FinancingService,

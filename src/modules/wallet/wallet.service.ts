@@ -372,10 +372,25 @@ export class WalletService {
   ) {
     const { user, wallet } = await this.walletForUzaId(dto.uzaId);
     const masked = `••••${dto.accountLastFour.replace(/\D/g, '').slice(-4)}`;
+    // The daily target is the lender's daily figure. If staff did not type one and the
+    // borrower already has a live loan, take it from there rather than leaving the driver
+    // with a wallet that says "no target yet" while an instalment is running.
+    let dailyTargetRwf = dto.dailyTargetRwf ?? wallet?.dailyTargetRwf ?? null;
+    if (dailyTargetRwf == null) {
+      const live = await this.prisma.loan.findFirst({
+        where: {
+          borrowerUserId: user.id,
+          status: { in: ['APPROVED', 'DISBURSED', 'ACTIVE', 'IN_ARREARS'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { dailyRwf: true },
+      });
+      dailyTargetRwf = live?.dailyRwf ?? null;
+    }
     const data = {
       institutionName: dto.institutionName.trim(),
       institutionAccountMasked: masked,
-      dailyTargetRwf: dto.dailyTargetRwf,
+      dailyTargetRwf,
       contributionTargetRwf: dto.contributionTargetRwf,
     };
     const w = wallet
