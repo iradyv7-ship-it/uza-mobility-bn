@@ -20,6 +20,11 @@ import { AcademyModule } from '../academy/academy.module';
 import { EmpowerSupportController } from './empower-support.controller';
 import { WalletModule } from '../wallet/wallet.module';
 import { PlatformSettingsModule } from '../platform-settings/platform-settings.module';
+import {
+  AdminLoanScenarioController,
+  ScenarioController,
+} from './scenario.controller';
+import { ScenarioService } from './scenario.service';
 
 @Module({
   imports: [
@@ -39,6 +44,8 @@ import { PlatformSettingsModule } from '../platform-settings/platform-settings.m
     FundApplicationController,
     EmpowerSupportController,
     LenderController,
+    ScenarioController,
+    AdminLoanScenarioController,
   ],
   providers: [
     FinancingService,
@@ -48,6 +55,7 @@ import { PlatformSettingsModule } from '../platform-settings/platform-settings.m
     LenderRequirementsService,
     LoanLifecycleService,
     LoanServicingService,
+    ScenarioService,
   ],
   exports: [
     FinancingService,

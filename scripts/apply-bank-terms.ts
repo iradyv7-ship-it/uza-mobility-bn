@@ -10,6 +10,10 @@
  *   DATABASE_URL=… npx ts-node scripts/apply-bank-terms.ts LOAN-2026-000001 22500000 1000000 21750000 1250000 "note"
  *
  * Only an undisbursed loan is re-quoted. The re-quote uses the same maths as origination.
+ *
+ * SUPERSEDED 20 Sept 2026 by the scenario engine: `POST /admin/loans/:loanId/scenario/apply`
+ * (scenario.service.ts) does the same booking from the panel, with the rule checks and an
+ * audit line with before/after. Kept for the record of how batch 1 was booked.
  */
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
