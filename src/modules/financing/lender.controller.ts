@@ -173,6 +173,21 @@ export class LenderController {
     );
   }
 
+  @Get('loans/:loanId/readiness-file')
+  @ApiOperation({
+    summary:
+      'The Readiness File: record, training, asset, covenants, servicing, equity and consent in one document — what a committee reads instead of a 10% deposit',
+  })
+  readinessFile(
+    @Req() request: LenderScopedRequest,
+    @Param('loanId') loanId: string,
+  ) {
+    return this.lenderService.readinessFile(
+      this.requireLender(request),
+      loanId,
+    );
+  }
+
   @Get('loans/:loanId/repayments')
   @ApiOperation({
     summary:

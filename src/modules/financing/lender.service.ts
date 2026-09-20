@@ -429,6 +429,72 @@ export class LenderService {
     };
   }
 
+  /**
+   * The Readiness File — the one document a credit committee reads instead of a 10% deposit.
+   *
+   * Nothing here is new information: it is the seven streams the lender could already read
+   * on their own routes (record, training, asset, covenants, servicing, equity, consent),
+   * assembled once, consent-gated once, so that "why lend to this person without cash?" is a
+   * page rather than a meeting. See nexus 15-readiness-backed-financing.md §4.
+   */
+  async readinessFile(lender: LenderConfig, loanId: string) {
+    const loan = await this.requireOwnLoan(lender, loanId);
+    const [
+      borrower,
+      consent,
+      record,
+      training,
+      asset,
+      covenants,
+      servicing,
+      equity,
+    ] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: loan.borrowerUserId },
+        select: { uzaId: true, firstName: true, lastName: true },
+      }),
+      loan.borrower.uzaId
+        ? this.prisma.lenderConsent.findUnique({
+            where: {
+              uzaId_lenderKey: {
+                uzaId: loan.borrower.uzaId,
+                lenderKey: lender.key,
+              },
+            },
+            select: { grantedAt: true, source: true },
+          })
+        : null,
+      this.walletService.performanceForUser(loan.borrowerUserId),
+      this.academyService.summaryForUser(loan.borrowerUserId),
+      this.workshopService.listInspectionsForLoan(loanId),
+      this.covenantsForLoan(lender, loanId),
+      this.repaymentsForLoan(lender, loanId),
+      this.equityBreakdown(loanId),
+    ]);
+    return {
+      generatedAt: new Date().toISOString(),
+      lender: lender.key,
+      borrower: {
+        uzaId: borrower?.uzaId ?? null,
+        displayName:
+          `${borrower?.firstName ?? ''} ${borrower?.lastName ?? ''}`.trim(),
+        loanRef: loan.reference,
+        status: loan.status,
+      },
+      consent,
+      record,
+      training,
+      asset: { inspections: asset },
+      covenants,
+      servicing,
+      equity: {
+        vehiclePriceRwf: loan.vehiclePriceRwf,
+        clientContributionRwf: loan.clientContributionRwf,
+        ...equity,
+      },
+    };
+  }
+
   /** Open covenant warnings on one loan, as the covenant engine computes them right now. */
   async covenantsForLoan(lender: LenderConfig, loanId: string) {
     await this.requireOwnLoan(lender, loanId);
