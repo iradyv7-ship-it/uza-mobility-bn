@@ -32,12 +32,15 @@ describe('the contribution band', () => {
 
 describe('one client', () => {
   it('computes UZA support as the gap above what the driver has', () => {
+    // A cohort-1 row, accepted at 500k: the minimum is grandfathered on the row.
     const r = planRow({
       reference: 'A',
       vehiclePriceRwf: 23_500_000,
       driverHasRwf: 500_000,
+      grandfatheredMinimumRwf: 500_000,
     });
     expect(r.requiredContributionRwf).toBe(2_350_000);
+    expect(r.suggestedDriverMinimumRwf).toBe(1_500_000);
     expect(r.uzaSupportRwf).toBe(1_850_000);
     expect(r.facilityRwf).toBe(21_150_000);
     expect(r.belowDriverMinimum).toBe(false);
@@ -51,21 +54,68 @@ describe('one client', () => {
       driverHasPctOfRequired: 40,
     });
     expect(r.driverHasRwf).toBe(940_000);
-    expect(r.uzaSupportRwf).toBe(1_410_000);
+    // 940k is below the 1.5M minimum for a 20–25M vehicle: support is sized from the minimum.
+    expect(r.belowDriverMinimum).toBe(true);
+    expect(r.uzaSupportRwf).toBe(2_350_000 - 1_500_000);
     expect(r.driverHasPctOfRequired).toBe(40);
   });
 
   it('does not let UZA replace the driver stake below the minimum', () => {
+    // A 23.5M vehicle sits in the 20–25M band: the client's own minimum is 1.5M.
     const r = planRow({
       reference: 'C',
       vehiclePriceRwf: 23_500_000,
       driverHasRwf: 200_000,
     });
+    expect(r.suggestedDriverMinimumRwf).toBe(1_500_000);
     expect(r.belowDriverMinimum).toBe(true);
-    expect(r.driverStillNeedsRwf).toBe(300_000);
+    expect(r.driverStillNeedsRwf).toBe(1_300_000);
     // Support is sized from the minimum, not from what they currently hold.
-    expect(r.uzaSupportRwf).toBe(2_350_000 - 500_000);
-    expect(r.notes.join(' ')).toMatch(/below the RWF 500,000 minimum/);
+    expect(r.uzaSupportRwf).toBe(2_350_000 - 1_500_000);
+    expect(r.notes.join(' ')).toMatch(/below the RWF 1,500,000 minimum/);
+  });
+
+  it('suggests the client minimum by price band, and a grandfathered row keeps its own', () => {
+    expect(
+      planRow({
+        reference: 'a',
+        vehiclePriceRwf: 18_500_000,
+        driverHasRwf: 1_000_000,
+      }).suggestedDriverMinimumRwf,
+    ).toBe(1_000_000);
+    expect(
+      planRow({
+        reference: 'b',
+        vehiclePriceRwf: 22_000_000,
+        driverHasRwf: 1_500_000,
+      }).suggestedDriverMinimumRwf,
+    ).toBe(1_500_000);
+    expect(
+      planRow({
+        reference: 'c',
+        vehiclePriceRwf: 29_800_000,
+        driverHasRwf: 2_000_000,
+      }).suggestedDriverMinimumRwf,
+    ).toBe(2_000_000);
+    expect(
+      planRow({
+        reference: 'd',
+        vehiclePriceRwf: 31_500_000,
+        driverHasRwf: 2_500_000,
+      }).suggestedDriverMinimumRwf,
+    ).toBe(2_500_000);
+    // Cohort 1 E70 accepted at 500k: the suggestion still says 1M, the applied minimum is 500k,
+    // and UZA's support closes the whole gap above 500k.
+    const e70 = planRow({
+      reference: 'e',
+      vehiclePriceRwf: 18_500_000,
+      driverHasRwf: 500_000,
+      grandfatheredMinimumRwf: 500_000,
+    });
+    expect(e70.suggestedDriverMinimumRwf).toBe(1_000_000);
+    expect(e70.appliedDriverMinimumRwf).toBe(500_000);
+    expect(e70.belowDriverMinimum).toBe(false);
+    expect(e70.uzaSupportRwf).toBe(1_850_000 - 500_000);
   });
 
   it('quotes the same daily figure the portal shows for the Neta U Pro at 5 years', () => {
@@ -113,21 +163,23 @@ describe('one client', () => {
 
 describe('a cohort', () => {
   it('totals the facility UZA has to size', () => {
+    // Cohort-2 rules: 20–25M needs 1.5M of the driver's own; over 30M needs 2.5M.
     const plan = planSupport([
-      { reference: 'A', vehiclePriceRwf: 23_500_000, driverHasRwf: 500_000 },
+      { reference: 'A', vehiclePriceRwf: 23_500_000, driverHasRwf: 1_500_000 },
       {
         reference: 'B',
         vehiclePriceRwf: 23_500_000,
-        driverHasPctOfRequired: 40,
+        driverHasPctOfRequired: 40, // 940k — below the 1.5M minimum
       },
-      { reference: 'C', vehiclePriceRwf: 31_500_000, driverHasRwf: 500_000 },
+      { reference: 'C', vehiclePriceRwf: 31_500_000, driverHasRwf: 2_500_000 },
       { reference: 'D', vehiclePriceRwf: 23_500_000, driverHasRwf: 200_000 },
     ]);
     expect(plan.totals.clients).toBe(4);
-    expect(plan.totals.belowDriverMinimum).toBe(1);
-    expect(plan.totals.eligibleForSupport).toBe(3);
+    expect(plan.totals.belowDriverMinimum).toBe(2);
+    expect(plan.totals.eligibleForSupport).toBe(2);
+    // Support is sized from the applicable minimum for the two below it.
     expect(plan.totals.uzaSupportRwf).toBe(
-      1_850_000 + 1_410_000 + 4_225_000 + 1_850_000,
+      850_000 + 850_000 + (4_725_000 - 2_500_000) + 850_000,
     );
     expect(plan.assumptions.some((a) => /not a credit decision/.test(a))).toBe(
       true,
@@ -176,12 +228,19 @@ describe('the spreadsheet', () => {
   it('writes the plan back as CSV with a total line', () => {
     const csv = planToCsv(
       planSupport([
-        { reference: 'A', vehiclePriceRwf: 23_500_000, driverHasRwf: 500_000 },
+        {
+          reference: 'A',
+          vehiclePriceRwf: 23_500_000,
+          driverHasRwf: 1_500_000,
+        },
       ]),
     );
-    expect(csv.split('\n')[0]).toMatch(/^reference,vehicle,vehicle_price_rwf/);
+    expect(csv.split('\n')[0]).toMatch(
+      /^reference,vehicle,vehicle_price_rwf,band_pct,required_contribution_rwf,suggested_client_minimum_rwf/,
+    );
     expect(csv).toMatch(/\nTOTAL,/);
-    expect(csv).toMatch(/1850000/);
+    expect(csv).toMatch(/,2350000,1500000,1500000,/);
+    expect(csv).toMatch(/850000/);
   });
 });
 

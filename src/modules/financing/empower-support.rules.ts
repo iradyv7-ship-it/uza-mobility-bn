@@ -16,9 +16,18 @@ import { quoteLoan, UNGUKA_RATE_BANDS } from './loan-terms';
  *                        Confirmed by Unguka's Tunga Taxi contact, 19 August 2026, in a live
  *                        meeting. Treated as policy. (`unguka-portal` memory; `07-evidence-base`)
  *
- *  Driver minimum        RWF 500,000 of the contribution must be the driver's own money.
- *                        Programme rule, not the bank's. Below it, UZA does not top up —
- *                        the top-up closes a gap, it does not replace the driver's stake.
+ *  Driver minimum        The part of the contribution that must be the driver's own money —
+ *                        a programme rule, not the bank's. Below it, UZA does not top up: the
+ *                        top-up closes a gap, it does not replace the driver's stake.
+ *                        From cohort 2 the minimum is banded by vehicle price (Yves,
+ *                        20 September 2026):
+ *                            below RWF 20,000,000            → RWF 1,000,000
+ *                            RWF 20,000,000 – 24,999,999     → RWF 1,500,000
+ *                            RWF 25,000,000 – 30,000,000     → RWF 2,000,000
+ *                            above RWF 30,000,000            → RWF 2,500,000
+ *                        Cohort 1 was accepted at RWF 500,000 on the E70s — "as the initial
+ *                        cohort, we accept that" — and is grandfathered via
+ *                        `grandfatheredMinimumRwf` on the row.
  *
  *  UZA Empower support   required contribution − what the driver has, floored at zero.
  *                        Placed as blocked cash collateral (Unguka only), pinned to the loan
@@ -33,7 +42,22 @@ import { quoteLoan, UNGUKA_RATE_BANDS } from './loan-terms';
 export const BAND_THRESHOLD_RWF = 25_000_000;
 export const LOWER_BAND_PCT = 10;
 export const UPPER_BAND_PCT = 15;
-export const DRIVER_MINIMUM_RWF = 500_000;
+/** Cohort 1's minimum, kept for the rows that were accepted on it. */
+export const COHORT1_DRIVER_MINIMUM_RWF = 500_000;
+/** @deprecated Use driverMinimumRwf(price). Kept so older call sites still compile. */
+export const DRIVER_MINIMUM_RWF = COHORT1_DRIVER_MINIMUM_RWF;
+
+/**
+ * The suggested minimum the client brings themselves, by vehicle price. Shown on every
+ * option next to the expected 10% (or 15%) contribution, so a driver choosing between a
+ * RWF 18.5M E70 and a RWF 31.5M Yuan Up sees both numbers move together.
+ */
+export function driverMinimumRwf(vehiclePriceRwf: number): number {
+  if (vehiclePriceRwf < 20_000_000) return 1_000_000;
+  if (vehiclePriceRwf < 25_000_000) return 1_500_000;
+  if (vehiclePriceRwf <= 30_000_000) return 2_000_000;
+  return 2_500_000;
+}
 
 export function contributionBandPct(vehiclePriceRwf: number): number {
   return vehiclePriceRwf <= BAND_THRESHOLD_RWF
@@ -61,6 +85,11 @@ export interface SupportRowInput {
   driverHasRwf?: number;
   driverHasPctOfRequired?: number;
   tenorMonths?: 36 | 60;
+  /**
+   * A minimum accepted for this row that differs from the banded rule — cohort 1's RWF
+   * 500,000 on the E70s. Recorded on the row so the plan says which rule it applied.
+   */
+  grandfatheredMinimumRwf?: number;
 }
 
 export interface SupportRowPlan {
@@ -69,6 +98,10 @@ export interface SupportRowPlan {
   vehiclePriceRwf: number;
   bandPct: number;
   requiredContributionRwf: number;
+  /** The suggested minimum the client brings themselves for a vehicle at this price. */
+  suggestedDriverMinimumRwf: number;
+  /** The minimum actually applied to this row (equals the suggestion unless grandfathered). */
+  appliedDriverMinimumRwf: number;
   driverHasRwf: number;
   driverHasPctOfRequired: number;
   /** The gap UZA Empower would place as collateral. Zero when the driver has enough. */
@@ -182,20 +215,19 @@ export function planRow(input: SupportRowInput): SupportRowPlan {
     );
   }
 
-  const belowMinimum = driverHas < DRIVER_MINIMUM_RWF;
-  const driverStillNeeds = belowMinimum ? DRIVER_MINIMUM_RWF - driverHas : 0;
+  const suggestedMinimum = driverMinimumRwf(input.vehiclePriceRwf);
+  const minimum = input.grandfatheredMinimumRwf ?? suggestedMinimum;
+  const belowMinimum = driverHas < minimum;
+  const driverStillNeeds = belowMinimum ? minimum - driverHas : 0;
   // UZA closes the gap above the driver's minimum stake, never the stake itself.
-  const effectiveDriver = Math.max(
-    driverHas,
-    Math.min(DRIVER_MINIMUM_RWF, required),
-  );
+  const effectiveDriver = Math.max(driverHas, Math.min(minimum, required));
   const uzaSupport = belowMinimum
     ? Math.max(0, required - effectiveDriver)
     : Math.max(0, required - driverHas);
 
   if (belowMinimum) {
     notes.push(
-      `Driver stake RWF ${driverHas.toLocaleString('en-RW')} is below the RWF ${DRIVER_MINIMUM_RWF.toLocaleString('en-RW')} minimum; support shown assumes the driver first reaches the minimum.`,
+      `Driver stake RWF ${driverHas.toLocaleString('en-RW')} is below the RWF ${minimum.toLocaleString('en-RW')} minimum; support shown assumes the driver first reaches the minimum.`,
     );
   }
   if (driverHas >= required) {
@@ -218,6 +250,8 @@ export function planRow(input: SupportRowInput): SupportRowPlan {
     vehiclePriceRwf: Math.round(input.vehiclePriceRwf),
     bandPct,
     requiredContributionRwf: required,
+    suggestedDriverMinimumRwf: suggestedMinimum,
+    appliedDriverMinimumRwf: minimum,
     driverHasRwf: driverHas,
     driverHasPctOfRequired: Math.round((driverHas / required) * 1000) / 10,
     uzaSupportRwf: uzaSupport,
@@ -334,7 +368,7 @@ export function planSupport(inputs: readonly SupportRowInput[]): SupportPlan {
     },
     assumptions: [
       `Contribution band: ${LOWER_BAND_PCT}% at or below RWF ${BAND_THRESHOLD_RWF.toLocaleString('en-RW')}, ${UPPER_BAND_PCT}% above (Unguka, confirmed 19 Aug 2026).`,
-      `Driver minimum stake: RWF ${DRIVER_MINIMUM_RWF.toLocaleString('en-RW')} (programme rule).`,
+      'Driver minimum stake, by vehicle price: under 20M → 1M; 20–25M → 1.5M; 25–30M → 2M; over 30M → 2.5M (programme rule, 20 Sept 2026). Cohort 1 rows may carry a grandfathered 500k.',
       'Instalments quoted on the Unguka bands (34% p.a. to 36 months, 36% p.a. to 60), reducing balance, 30-day months, rounded up daily. Displayed as cost per day, never as a rate, per Unguka.',
       'Insurance not included. Comprehensive at 5.5% of value per year is a lender requirement and can be cash or financed; see the pitch portal for both modes.',
       'This sizes what UZA would place if the bank approves. It is not a credit decision.',
@@ -392,6 +426,12 @@ const COLUMN_ALIASES: Record<keyof SupportRowInput, string[]> = {
     'has %',
   ],
   tenorMonths: ['tenormonths', 'tenor', 'months', 'term', 'tenor months'],
+  grandfatheredMinimumRwf: [
+    'grandfathered minimum',
+    'accepted minimum',
+    'minimum accepted (rwf)',
+    'cohort minimum',
+  ],
 };
 
 const norm = (s: string) =>
@@ -470,6 +510,7 @@ export function rowsFromCells(records: readonly Record<string, unknown>[]): {
       driverHasRwf: toNumber(mapped.driverHasRwf),
       driverHasPctOfRequired: pct,
       tenorMonths: tenor,
+      grandfatheredMinimumRwf: toNumber(mapped.grandfatheredMinimumRwf),
     });
   });
   return { inputs, skipped };
@@ -520,6 +561,7 @@ export function planToCsv(plan: SupportPlan): string {
     'vehicle_price_rwf',
     'band_pct',
     'required_contribution_rwf',
+    'suggested_client_minimum_rwf',
     'driver_has_rwf',
     'driver_has_pct',
     'uza_support_rwf',
@@ -546,6 +588,7 @@ export function planToCsv(plan: SupportPlan): string {
       r.vehiclePriceRwf,
       r.bandPct,
       r.requiredContributionRwf,
+      r.suggestedDriverMinimumRwf,
       r.driverHasRwf,
       r.driverHasPctOfRequired,
       r.uzaSupportRwf,
