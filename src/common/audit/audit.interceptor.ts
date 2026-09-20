@@ -12,7 +12,6 @@ import { AuditService } from './audit.service';
 import { AUDIT_ACTION_KEY } from './decorators/audited.decorator';
 import { SKIP_AUDIT_KEY } from './decorators/skip-audit.decorator';
 import { getRequestAuditContext } from './request-context.util';
-import type { JwtUserPayload } from '../../users/users.types';
 
 const MUTATION_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
@@ -46,7 +45,7 @@ export class AuditInterceptor implements NestInterceptor {
     );
 
     const auditContext = getRequestAuditContext(request);
-    const user = request.user as JwtUserPayload | undefined;
+    const user = request.user;
 
     /*
      * The response body passes through untouched.

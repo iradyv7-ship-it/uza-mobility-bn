@@ -1,5 +1,4 @@
 import type { Request } from 'express';
-import type { JwtUserPayload } from '../../users/users.types';
 
 export interface RequestAuditContext {
   ipAddress?: string;
@@ -23,7 +22,7 @@ export function getRequestAuditContext(request: Request): RequestAuditContext {
         ? forwarded[0]
         : undefined;
 
-  const user = request.user as JwtUserPayload | undefined;
+  const user = request.user;
 
   return {
     ipAddress: normalizeIp(

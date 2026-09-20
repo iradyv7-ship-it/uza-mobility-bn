@@ -8,7 +8,6 @@ import {
 import { Observable } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 import type { Request, Response } from 'express';
-import type { JwtUserPayload } from '../../users/users.types';
 
 @Injectable()
 export class HttpLoggingInterceptor implements NestInterceptor {
@@ -20,7 +19,7 @@ export class HttpLoggingInterceptor implements NestInterceptor {
     const startedAt = Date.now();
     const { method } = request;
     const path = request.originalUrl ?? request.url;
-    const user = request.user as JwtUserPayload | undefined;
+    const user = request.user;
     const actor = user?.email ?? 'anonymous';
 
     return next.handle().pipe(
