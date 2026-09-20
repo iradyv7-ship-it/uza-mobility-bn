@@ -25,6 +25,11 @@ import {
   ScenarioController,
 } from './scenario.controller';
 import { ScenarioService } from './scenario.service';
+import {
+  AdminCommitmentController,
+  CommitmentController,
+} from './commitment.controller';
+import { CommitmentService } from './commitment.service';
 
 @Module({
   imports: [
@@ -46,6 +51,8 @@ import { ScenarioService } from './scenario.service';
     LenderController,
     ScenarioController,
     AdminLoanScenarioController,
+    CommitmentController,
+    AdminCommitmentController,
   ],
   providers: [
     FinancingService,
@@ -56,6 +63,7 @@ import { ScenarioService } from './scenario.service';
     LoanLifecycleService,
     LoanServicingService,
     ScenarioService,
+    CommitmentService,
   ],
   exports: [
     FinancingService,
