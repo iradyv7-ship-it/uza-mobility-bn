@@ -15,9 +15,12 @@ export class VerifyAdminLoginDto {
   @Length(10, 64)
   challengeId!: string;
 
-  @ApiProperty({ example: '482913', description: 'The six-digit code from the email' })
+  @ApiProperty({
+    example: '482913',
+    description: 'The six-digit code from the email, or a recovery code (R-XXXX-XXXX-XX) issued by a super admin',
+  })
   @IsString()
-  @Length(6, 8)
+  @Length(6, 16)
   code!: string;
 }
 
@@ -44,4 +47,14 @@ export class RedeemStaffInviteDto {
   @IsString()
   @Length(8, 20)
   code!: string;
+}
+
+export class AccessRecoveryDto {
+  @ApiProperty({
+    description:
+      'Why — audited. e.g. "Paulin locked out; mailbox migration at Unguka; identity confirmed by call-back to his desk line."',
+  })
+  @IsString()
+  @Length(8, 400)
+  reason!: string;
 }

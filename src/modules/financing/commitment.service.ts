@@ -9,6 +9,9 @@ import {
 import { commitment, type Commitment, type CommitmentSignals } from './commitment.rules';
 import { driverMinimumRwf } from './empower-support.rules';
 
+/** The module whose attendance is rung 2 of the ladder. Proposal under DEC-2026-0042. */
+export const ORIENTATION_MODULE_CODE = 'ACD-00';
+
 /**
  * Reads the commitment signals from what the platform already records — nothing is asked
  * of the driver twice — and runs the ladder. One person at a time for the driver's own
@@ -37,7 +40,10 @@ export class CommitmentService {
       this.prisma.wallet.findUnique({ where: { userId: user.id }, select: { id: true, dailyTargetRwf: true, contributionTargetRwf: true } }),
       this.prisma.enrolment.findMany({
         where: { userId: user.id },
-        select: { attendance: { select: { id: true } }, assessments: { where: { kind: 'COMPREHENSION' }, select: { scorePct: true } } },
+        select: {
+          attendance: { select: { id: true, module: { select: { code: true } } } },
+          assessments: { where: { kind: 'COMPREHENSION' }, select: { scorePct: true } },
+        },
       }),
       user.phone ? this.prisma.driverInterestLead.findFirst({ where: { phone: user.phone }, select: { id: true } }) : null,
     ]);
@@ -72,7 +78,10 @@ export class CommitmentService {
       phoneVerified: user.isPhoneVerified,
       hasChosenVehicle: !!loan || !!lead || application?.preferredTenorMonths != null || !!wallet?.contributionTargetRwf,
       declaredIncome: (application?.averageDailyTakingsRwf ?? 0) > 0 && (application?.workingDaysPerWeek ?? 0) > 0,
-      attendedOrientation: enrolments.some((e) => e.attendance.length > 0),
+      // Orientation is ACD-00 (seed-academy-modules.ts); nothing else counts as "showed up".
+      attendedOrientation: enrolments.some((e) =>
+        e.attendance.some((a) => a.module.code === ORIENTATION_MODULE_CODE),
+      ),
       walletOpened: !!wallet,
       confirmedDeposits,
       currentStreak,

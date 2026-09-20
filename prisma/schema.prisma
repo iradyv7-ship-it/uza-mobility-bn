@@ -92,6 +92,7 @@ model User {
   refreshTokens        RefreshToken[]
   authTokens           AuthToken[]
   adminLoginChallenges AdminLoginChallenge[] @relation("AdminLoginChallenges")
+  accessRecoveryCodes  AccessRecoveryCode[]  @relation("AccessRecoveryCodes")
   savedListings        SavedListing[]
   vehicleBookings      VehicleBooking[]
   inquiries            Inquiry[]
@@ -2148,6 +2149,26 @@ model StaffInvite {
 
 /// The second step of an admin sign-in: a six-digit code sent to the account's email, valid
 /// for ten minutes and five attempts. A password alone never opens the admin panel.
+/// A recovery code a super admin hands to a staff member or bank officer whose mailbox is
+/// unreachable: it stands in for ONE emailed sign-in code, once, within thirty minutes. Issued
+/// person-to-person (read out on a call the admin initiated), never emailed — its whole point
+/// is that email is down. The redundancy layer under the one-time code.
+model AccessRecoveryCode {
+  id         String    @id @default(cuid())
+  userId     String
+  codeHash   String    @unique
+  expiresAt  DateTime
+  issuedById String
+  reason     String
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation("AccessRecoveryCodes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("access_recovery_codes")
+}
+
 model AdminLoginChallenge {
   id         String    @id @default(cuid())
   userId     String

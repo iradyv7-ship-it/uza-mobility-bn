@@ -13,7 +13,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../../users/users.types';
 import { Roles } from './decorators/roles.decorator';
 import { RolesGuard } from './guards/roles.guard';
-import { CreateStaffInviteDto } from './dto/staff-access.dto';
+import { AccessRecoveryDto, CreateStaffInviteDto } from './dto/staff-access.dto';
 import { StaffAccessService } from './staff-access.service';
 
 /** Issuing and revoking staff access codes. Super admin only — this is the door to the panel. */
@@ -50,5 +50,31 @@ export class StaffInvitesController {
   @ApiOperation({ summary: 'Revoke an unredeemed invite' })
   revoke(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     return this.staffAccess.revokeInvite(id, this.me(req));
+  }
+
+  @Post('recovery-code/:userId')
+  @ApiOperation({
+    summary:
+      'Issue a one-time recovery code that replaces ONE emailed sign-in code for 30 minutes. Read it to the person on a call you placed; never email it.',
+  })
+  recoveryCode(
+    @Req() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Body() dto: AccessRecoveryDto,
+  ) {
+    return this.staffAccess.issueRecoveryCode({ userId, reason: dto.reason, byUserId: this.me(req) });
+  }
+
+  @Post('reset-access/:userId')
+  @ApiOperation({
+    summary:
+      'Reset a person’s access: temporary password (shown once), must change at first sign-in, all sessions revoked.',
+  })
+  resetAccess(
+    @Req() req: AuthenticatedRequest,
+    @Param('userId') userId: string,
+    @Body() dto: AccessRecoveryDto,
+  ) {
+    return this.staffAccess.resetAccess({ userId, reason: dto.reason, byUserId: this.me(req) });
   }
 }

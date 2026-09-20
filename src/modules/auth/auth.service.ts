@@ -11,6 +11,11 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { randomBytes } from 'crypto';
 import { StaffAccessService } from './staff-access.service';
+
+/** Roles whose sign-in on the customer portal needs the one-time code. */
+export function requiresSecondFactor(roleNames: readonly string[]): boolean {
+  return roleNames.some((r) => r.startsWith('LENDER_'));
+}
 import { compareSync, genSaltSync, hashSync } from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -136,11 +141,63 @@ export class AuthService {
     };
   }
 
+  /**
+   * Customer-portal sign-in. A client gets tokens on a correct password. An account that
+   * carries a lender role (LENDER_<KEY>) does not: it gets a one-time-code challenge, the
+   * same second step the admin panel uses — a bank officer reads other people's files, and
+   * that door is never opened by a password alone. `verifyLogin` completes it.
+   */
   async login(
     dto: LoginDto,
     auditContext: RequestAuditContext = {},
-  ): Promise<AuthResponseDto> {
+  ): Promise<AuthResponseDto | Awaited<ReturnType<StaffAccessService['openChallenge']>>> {
+    const user = await this.authenticate(dto);
+    if (requiresSecondFactor(user.roles)) {
+      await this.auditService.record({
+        userId: user.id,
+        action: 'auth:lender-login-challenge',
+        entity: 'User',
+        ipAddress: auditContext.ipAddress,
+        userAgent: auditContext.userAgent,
+        metadata: { email: user.email },
+      });
+      return this.staffAccess.openChallenge({
+        userId: user.id,
+        email: user.email,
+        ipAddress: auditContext.ipAddress,
+        userAgent: auditContext.userAgent,
+      });
+    }
     return this.authenticateAndIssueTokens(dto, auditContext);
+  }
+
+  async verifyLogin(
+    challengeId: string,
+    code: string,
+    auditContext: RequestAuditContext = {},
+  ): Promise<AuthResponseDto> {
+    const userId = await this.staffAccess.verifyChallenge(challengeId, code);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        roles: { include: { role: true } },
+        sellers: { select: { sellerType: true } },
+        operatorProfile: { select: { id: true } },
+      },
+    });
+    if (!user) throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
+    this.assertUserIsActive(user);
+    const safeUser = this.usersService.toSafeUser(user);
+    const tokens = await this.issueTokens(safeUser);
+    await this.auditService.record({
+      userId: safeUser.id,
+      action: 'auth:lender-login',
+      entity: 'User',
+      ipAddress: auditContext.ipAddress,
+      userAgent: auditContext.userAgent,
+      metadata: { email: safeUser.email, challengeId },
+    });
+    return tokens;
   }
 
   async loginWithGoogleProfile(
@@ -229,6 +286,13 @@ export class AuthService {
     if (isStaffOnlyAccount(workspaceContext)) {
       throw new UnauthorizedException(
         'Use the admin portal to sign in with this account',
+      );
+    }
+    // A lender account signs in with email, password and a one-time code — never Google,
+    // which would let a linked personal account open a bank's files with no second step.
+    if (requiresSecondFactor(roleNames)) {
+      throw new UnauthorizedException(
+        'Lender accounts sign in with email, password and the one-time code.',
       );
     }
 

@@ -85,6 +85,23 @@ export class AuthController {
     return this.authService.login(dto, getRequestAuditContext(request));
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('login/verify')
+  @Public()
+  @SkipAudit()
+  @ApiOperation({
+    summary:
+      'Second step of a lender sign-in on the customer portal: the one-time code from the email, in exchange for tokens',
+  })
+  @ApiOkResponse({ type: AuthResponseDto })
+  verifyLogin(@Body() dto: VerifyAdminLoginDto, @Req() request: Request) {
+    return this.authService.verifyLogin(
+      dto.challengeId,
+      dto.code,
+      getRequestAuditContext(request),
+    );
+  }
+
   @Get('google')
   @Public()
   @SkipAudit()

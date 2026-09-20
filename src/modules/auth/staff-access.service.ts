@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { genSaltSync, hashSync } from 'bcryptjs';
 import { AuditService } from '../../common/audit/audit.service';
 import { MailService } from '../../common/mail/mail.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -239,13 +240,44 @@ export class StaffAccessService {
     };
   }
 
-  /** Returns the userId the challenge was for; throws otherwise. */
+  /**
+   * Returns the userId the challenge was for; throws otherwise. Accepts either the emailed
+   * six digits or an unused recovery code issued to the same user (`issueRecoveryCode`) —
+   * the redundancy for a mailbox that cannot be reached. Either way the challenge is consumed.
+   */
   async verifyChallenge(challengeId: string, rawCode: string): Promise<string> {
-    const code = rawCode.replace(/\D/g, '');
     const ch = await this.prisma.adminLoginChallenge.findUnique({ where: { id: challengeId } });
     const refuse = (why: string) => new UnauthorizedException(why);
     if (!ch || ch.consumedAt) throw refuse('This sign-in code has already been used. Sign in again.');
     if (ch.expiresAt.getTime() < Date.now()) throw refuse('This sign-in code has expired. Sign in again.');
+
+    if (/^R-/i.test(rawCode.trim())) {
+      const rc = await this.prisma.accessRecoveryCode.findUnique({
+        where: { codeHash: hashToken(StaffAccessService.normaliseCode(rawCode)) },
+      });
+      if (!rc || rc.userId !== ch.userId || rc.usedAt || rc.expiresAt.getTime() < Date.now()) {
+        const u = await this.prisma.adminLoginChallenge.update({ where: { id: ch.id }, data: { attempts: { increment: 1 } } });
+        throw refuse(
+          u.attempts >= StaffAccessService.CHALLENGE_MAX_ATTEMPTS
+            ? 'Too many attempts. Sign in again to get a new code.'
+            : 'That recovery code is not valid for this account, or has expired.',
+        );
+      }
+      await this.prisma.$transaction([
+        this.prisma.accessRecoveryCode.update({ where: { id: rc.id }, data: { usedAt: new Date() } }),
+        this.prisma.adminLoginChallenge.update({ where: { id: ch.id }, data: { consumedAt: new Date() } }),
+      ]);
+      await this.audit.record({
+        userId: ch.userId,
+        action: 'ACCESS_RECOVERY_CODE_USED',
+        entity: 'user',
+        entityId: ch.userId,
+        metadata: { recoveryCodeId: rc.id, issuedById: rc.issuedById, reason: rc.reason, challengeId: ch.id },
+      });
+      return ch.userId;
+    }
+
+    const code = rawCode.replace(/\D/g, '');
     if (ch.attempts >= StaffAccessService.CHALLENGE_MAX_ATTEMPTS) {
       throw refuse('Too many attempts. Sign in again to get a new code.');
     }
@@ -259,5 +291,102 @@ export class StaffAccessService {
     }
     await this.prisma.adminLoginChallenge.update({ where: { id: ch.id }, data: { consumedAt: new Date() } });
     return ch.userId;
+  }
+
+  // ── Recovery: the layers under the password and the emailed code ───────────────────────
+  //
+  //  Layer 1  Forgot password → reset link by email (AuthService.forgotPassword). Self-serve.
+  //  Layer 2  Super admin resets access: new temporary password, spoken not emailed, must be
+  //           changed at first sign-in; every session and open challenge revoked.
+  //  Layer 3  Super admin issues a recovery code that replaces ONE emailed sign-in code for
+  //           thirty minutes — for the staff member or bank officer whose mailbox is down.
+  //  Layer 4  Two super admins at all times, so layers 2 and 3 never depend on one person.
+  //           (Governance, not code: enforced in the go-live checklist.)
+
+  /** R-XXXX-XXXX-XX. Same alphabet as invites. */
+  private static newRecoveryCode(): string {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const bytes = randomBytes(10);
+    const c = Array.from(bytes, (b) => alphabet[b % alphabet.length]);
+    return `R-${c.slice(0, 4).join('')}-${c.slice(4, 8).join('')}-${c.slice(8).join('')}`;
+  }
+
+  async issueRecoveryCode(input: { userId: string; reason: string; byUserId: string }) {
+    if (input.userId === input.byUserId) {
+      throw new ForbiddenException('A recovery code is issued to someone else, never to yourself.');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { id: true, email: true, isActive: true },
+    });
+    if (!user || !user.isActive) throw new NotFoundException('User not found');
+    const reason = input.reason.trim();
+    if (reason.length < 8) throw new BadRequestException('Say why (at least a short sentence) — it is audited.');
+    // One live recovery code per person.
+    await this.prisma.accessRecoveryCode.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    const code = StaffAccessService.newRecoveryCode();
+    const rc = await this.prisma.accessRecoveryCode.create({
+      data: {
+        userId: user.id,
+        codeHash: hashToken(code),
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+        issuedById: input.byUserId,
+        reason,
+      },
+    });
+    await this.audit.record({
+      userId: input.byUserId,
+      action: 'ACCESS_RECOVERY_CODE_ISSUED',
+      entity: 'user',
+      entityId: user.id,
+      metadata: { recoveryCodeId: rc.id, expiresAt: rc.expiresAt.toISOString(), reason },
+    });
+    return {
+      expiresAt: rc.expiresAt,
+      /** Read it to the person on a call YOU placed. Never email or message it. Shown once. */
+      code,
+      howToUse:
+        'They sign in with email and password as usual; at the code step they type this instead of the emailed digits.',
+    };
+  }
+
+  /**
+   * Reset someone's access: temporary password (shown once, spoken not emailed),
+   * mustChangePassword, all sessions and open challenges revoked.
+   */
+  async resetAccess(input: { userId: string; reason: string; byUserId: string }) {
+    if (input.userId === input.byUserId) {
+      throw new ForbiddenException('Reset your own access through Forgot password.');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { id: true, email: true, isActive: true },
+    });
+    if (!user || !user.isActive) throw new NotFoundException('User not found');
+    const reason = input.reason.trim();
+    if (reason.length < 8) throw new BadRequestException('Say why (at least a short sentence) — it is audited.');
+    const temporaryPassword = randomBytes(9).toString('base64url').slice(0, 12);
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: hashSync(temporaryPassword, genSaltSync(10)), mustChangePassword: true },
+      }),
+      this.prisma.refreshToken.deleteMany({ where: { userId: user.id } }),
+      this.prisma.adminLoginChallenge.updateMany({
+        where: { userId: user.id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      }),
+    ]);
+    await this.audit.record({
+      userId: input.byUserId,
+      action: 'ACCESS_RESET',
+      entity: 'user',
+      entityId: user.id,
+      metadata: { reason, sessionsRevoked: true },
+    });
+    return { temporaryPassword, mustChangePassword: true };
   }
 }
