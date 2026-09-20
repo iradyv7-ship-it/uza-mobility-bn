@@ -32,6 +32,7 @@ import { FinancingModule } from './modules/financing/financing.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { BankFilesModule } from './modules/bank-files/bank-files.module';
 import { AllocationModule } from './modules/allocation/allocation.module';
+import { DriverInterestModule } from './modules/driver-interest/driver-interest.module';
 import { InquiriesModule } from './modules/inquiries/inquiries.module';
 import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 import { ChargingStationsModule } from './modules/charging-stations/charging-stations.module';
@@ -110,6 +111,7 @@ import { validateEnv } from './config/env.validation';
     BookingsModule,
     BankFilesModule,
     AllocationModule,
+    DriverInterestModule,
     InquiriesModule,
     PlatformSettingsModule,
     ChargingStationsModule,

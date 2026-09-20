@@ -142,6 +142,8 @@ async function seedPermissionsAndRoleMappings() {
     'inquiries:read-all',
     'inquiries:update-status',
     'fund-applications:manage',
+    'driver-interest:read',
+    'driver-interest:update-status',
   ];
 
   const permissionRecords = await Promise.all(
@@ -179,11 +181,18 @@ async function seedPermissionsAndRoleMappings() {
       'financing:send-to-bank',
       'fund-applications:manage',
     ],
-    // The person at the intake table, reading the form aloud and keying it in. Exactly one
-    // permission. Until 12 September 2026 this job was done with FINANCE_ADMIN, which also
-    // carries payments:refund and platform-settings:manage — far more than a field officer
-    // should hold, and far more than a field officer wants to be responsible for.
-    INTAKE_OFFICER: ['fund-applications:manage'],
+    // The person at the intake table, reading the form aloud and keying it in. Until
+    // 12 September 2026 this job was done with FINANCE_ADMIN, which also carries
+    // payments:refund and platform-settings:manage — far more than a field officer should
+    // hold, and far more than a field officer wants to be responsible for. The two
+    // driver-interest permissions (added 20 September 2026) are the same narrow shape:
+    // calling back a public lead and starting the real, staff-assisted application is
+    // this role's actual first step, not an addition to its scope.
+    INTAKE_OFFICER: [
+      'fund-applications:manage',
+      'driver-interest:read',
+      'driver-interest:update-status',
+    ],
     LOGISTICS_ADMIN: ['orders:read', 'orders:update-status'],
     FLEET_ADMIN: ['fleet:read', 'fleet:update-status', 'listings:read'],
     SUSTAINABILITY_ADMIN: ['sustainability:read', 'sustainability:manage', 'orders:read'],
@@ -193,6 +202,8 @@ async function seedPermissionsAndRoleMappings() {
       'orders:read',
       'inquiries:read-all',
       'inquiries:update-status',
+      'driver-interest:read',
+      'driver-interest:update-status',
     ],
     SELLER: ['listings:create', 'listings:read', 'parts:create'],
     CHARGING_OPERATOR: [
