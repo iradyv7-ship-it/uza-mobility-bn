@@ -53,32 +53,32 @@ model RolePermission {
 // ============================================================
 
 model User {
-  id                String    @id @default(cuid())
+  id                 String    @id @default(cuid())
   /// The permanent, public UZA identifier — UZA-P-2026-000141. One person, one number,
   /// across the marketplace, the academy, financing, charging and the garage. Never
   /// reissued, and deliberately not derived from anything that can change.
   ///
   /// Nullable for now so the migration is safe on a live table; a second, separate deploy
   /// makes it NOT NULL once the backfill is confirmed to have covered every row.
-  uzaId             String?   @unique
-  email             String    @unique
-  googleId          String?   @unique
-  phone             String?
-  passwordHash      String
-  firstName         String
-  lastName          String
-  isActive          Boolean   @default(true)
-  isEmailVerified   Boolean   @default(false)
-  isPhoneVerified   Boolean   @default(false)
+  uzaId              String?   @unique
+  email              String    @unique
+  googleId           String?   @unique
+  phone              String?
+  passwordHash       String
+  firstName          String
+  lastName           String
+  isActive           Boolean   @default(true)
+  isEmailVerified    Boolean   @default(false)
+  isPhoneVerified    Boolean   @default(false)
   /// Set on accounts UZA staff create on someone else's behalf (a driver's or a bank
   /// officer's first login before they've picked their own password) -- see
   /// AdminUsersController.createAccount. Never set on self-registration.
-  mustChangePassword Boolean  @default(false)
-  preferredLanguage String    @default("en") // en, fr, rw
-  profilePhoto      String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  deletedAt         DateTime?
+  mustChangePassword Boolean   @default(false)
+  preferredLanguage  String    @default("en") // en, fr, rw
+  profilePhoto       String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
 
   roles             UserRole[]
   buyerProfile      BuyerProfile?
@@ -119,14 +119,14 @@ model User {
   loans          Loan[]       @relation("LoanBorrower")
 
   // --- Loan lifecycle: tenor changes and the change-request approval gate ---
-  tenorChangesMade    LoanTenorChange[]    @relation("LoanTenorChangedBy")
-  loanChangeRequested LoanChangeRequest[]  @relation("LoanChangeRequestedBy")
-  loanChangeReviewed  LoanChangeRequest[]  @relation("LoanChangeReviewedBy")
+  tenorChangesMade         LoanTenorChange[]         @relation("LoanTenorChangedBy")
+  loanChangeRequested      LoanChangeRequest[]       @relation("LoanChangeRequestedBy")
+  loanChangeReviewed       LoanChangeRequest[]       @relation("LoanChangeReviewedBy")
+  fundApplicationDocuments FundApplicationDocument[] @relation("FundApplicationDocumentUploader")
+  contributionCredits      ContributionCredit[]      @relation("ContributionCredits")
 
   @@index([uzaId])
   @@map("users")
-  fundApplicationDocuments FundApplicationDocument[] @relation("FundApplicationDocumentUploader")
-  contributionCredits ContributionCredit[] @relation("ContributionCredits")
 }
 
 model UserRole {
@@ -2094,18 +2094,18 @@ enum LedgerReason {
 /// The wallet shows it beside the driver's savings, labelled, so a driver with nothing in the
 /// bank on day one still sees the bar move for every shift they drive.
 model ContributionCredit {
-  id        String                   @id @default(cuid())
-  userId    String
-  amountRwf Int
-  source    ContributionCreditSource
+  id              String                   @id @default(cuid())
+  userId          String
+  amountRwf       Int
+  source          ContributionCreditSource
   /// Why, in words a driver and an auditor both understand.
-  reason    String
+  reason          String
   /// Idempotency handle per user: a placement week, a grant reference. Never credited twice.
-  reference String?
+  reference       String?
   grantedByUserId String
-  grantedAt DateTime  @default(now())
-  revokedAt     DateTime?
-  revokedReason String?
+  grantedAt       DateTime                 @default(now())
+  revokedAt       DateTime?
+  revokedReason   String?
 
   user User @relation("ContributionCredits", fields: [userId], references: [id])
 
@@ -2936,9 +2936,138 @@ model Supplier {
   agreements   SupplyAgreement[]
   orders       SupplyOrder[]
   bankAccounts SupplierBankAccount[]
+  offers       SupplierOffer[]
 
   @@index([status, kind])
   @@map("suppliers")
+}
+
+enum SupplierOfferKind {
+  VEHICLE
+  SPARE_PART
+}
+
+enum SupplierOfferCondition {
+  NEW
+  USED
+}
+
+enum SupplierOfferStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  CONVERTED_TO_ORDER
+  DECLINED
+}
+
+/// "Here is what we have." The step BEFORE an Addendum.
+///
+/// A SupplyOrder is a commitment: a binding price, an accepted evidence pack, a VIN that
+/// must already exist. A supplier offering stock has none of that yet — a VIN may not be
+/// assigned, the price is indicative, and UZA has not looked at a single photograph. So an
+/// offer is its own record, and it is deliberately cheap to create and cheap to decline.
+///
+/// Nothing here is binding on either side. `convertedSupplyOrderId` is the only bridge:
+/// when UZA accepts, a real SupplyOrder/SupplyOrderVehicle is written by the supply-chain
+/// flow and this row records which one it became. An offer is never mutated into an order,
+/// because the offer is the evidence of what was originally represented.
+model SupplierOffer {
+  id         String            @id @default(cuid())
+  ref        String            @unique // OFF-2026-000001
+  supplierId String
+  kind       SupplierOfferKind @default(VEHICLE)
+
+  /// Nullable, unlike SupplyOrderVehicle.vin. At offer stage the unit is often still in a
+  /// yard or an auction lot and has no VIN allocated to UZA. When one IS given it is
+  /// validated the same way — 17 characters, never I, O or Q — because a VIN quoted wrong
+  /// here is a VIN quoted wrong on the Addendum.
+  vin           String?
+  brand         String
+  model         String
+  year          Int?
+  colour        String?
+  condition     SupplierOfferCondition @default(USED)
+  mileageKm     Int?
+  batterySohPct Int?
+
+  /// What the supplier states about accident and repair history, in their own words.
+  /// Free text on purpose: a boolean would turn "front bumper resprayed, no structural
+  /// damage" into a yes and lose the only part that matters. Null means NOT STATED, which
+  /// is not the same as "none" and must never be displayed as such.
+  accidentHistory String?
+
+  /// Spare parts only. A part offer is a line with a quantity, not a unit with a VIN.
+  partNumber String?
+  quantity   Int     @default(1)
+
+  /// Indicative, not binding. Integer minor units, like every other amount in this schema.
+  indicativePriceMinor BigInt?
+  currency             String
+  availableFrom        DateTime? @db.Date
+  notes                String?
+
+  status            SupplierOfferStatus @default(SUBMITTED)
+  submittedByUserId String? // the supplier-portal user; no FK, as elsewhere in this section
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+  reviewNote        String?
+  declinedReason    String?
+
+  /// Set when the offer became a real Addendum line. The offer row itself is never edited
+  /// into an order.
+  convertedSupplyOrderId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  supplier  Supplier                @relation(fields: [supplierId], references: [id])
+  documents SupplierOfferDocument[]
+
+  @@index([supplierId, status])
+  @@index([status, createdAt])
+  @@map("supplier_offers")
+}
+
+enum SupplierOfferDocumentKind {
+  PHOTO
+  INSPECTION_REPORT
+  SPECIFICATION
+  PROFORMA_INVOICE
+  OTHER
+}
+
+/// Evidence filed against an offer — photographs above all.
+///
+/// Same discipline as FundApplicationDocument and for the same reason: what a supplier
+/// showed UZA before a price was agreed is the record that settles a later argument about
+/// condition. Append-only, engraved with a SHA-256 of the exact bytes and the filing
+/// account, stored in the PRIVATE GridFS bucket. A wrong file is superseded by a new row
+/// naming the one it replaces; both stay.
+model SupplierOfferDocument {
+  id      String                    @id @default(cuid())
+  offerId String
+  kind    SupplierOfferDocumentKind
+
+  /// GridFS filename in the private bucket. Unguessable; never a public URL.
+  fileRef      String @unique
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  sha256       String
+
+  uploadedByUserId String
+  uploadedByUzaId  String?
+  uploadedByName   String
+  uploadedAt       DateTime @default(now())
+  note             String?
+
+  supersedesId String? @unique
+
+  offer        SupplierOffer          @relation(fields: [offerId], references: [id], onDelete: Restrict)
+  supersedes   SupplierOfferDocument? @relation("SupplierOfferDocumentSupersedes", fields: [supersedesId], references: [id])
+  supersededBy SupplierOfferDocument? @relation("SupplierOfferDocumentSupersedes")
+
+  @@index([offerId, kind, uploadedAt])
+  @@map("supplier_offer_documents")
 }
 
 /// Every supplier bank account, with the verification and the dual approval
@@ -4067,9 +4196,9 @@ model FundApplicationDocument {
   /// Set when this file replaces an earlier one. The earlier row is never removed.
   supersedesId String? @unique
 
-  application FundApplication          @relation(fields: [fundApplicationId], references: [id], onDelete: Restrict)
-  uploadedBy  User                     @relation("FundApplicationDocumentUploader", fields: [uploadedByUserId], references: [id])
-  supersedes  FundApplicationDocument? @relation("FundApplicationDocumentSupersedes", fields: [supersedesId], references: [id])
+  application  FundApplication          @relation(fields: [fundApplicationId], references: [id], onDelete: Restrict)
+  uploadedBy   User                     @relation("FundApplicationDocumentUploader", fields: [uploadedByUserId], references: [id])
+  supersedes   FundApplicationDocument? @relation("FundApplicationDocumentSupersedes", fields: [supersedesId], references: [id])
   supersededBy FundApplicationDocument? @relation("FundApplicationDocumentSupersedes")
 
   @@index([fundApplicationId, kind, uploadedAt])
@@ -4408,18 +4537,18 @@ enum TrainingCourseSource {
 /// course titles to make this look populated would be worse than an honestly empty table;
 /// real entries come from a real scouting pass or a real garage partner, never invented.
 model TrainingCourse {
-  id           String               @id @default(cuid())
-  title        String
-  provider     String
-  source       TrainingCourseSource
+  id         String               @id @default(cuid())
+  title      String
+  provider   String
+  source     TrainingCourseSource
   /// ISO 639-1 where known ("zh", "rw", "en"); free text because a real course's language
   /// mix (e.g. Chinese with English subtitles) doesn't always fit one code.
-  language     String
-  category     WorkCategory
-  url          String?
-  notes        String?
-  addedByRef   String?
-  isActive     Boolean              @default(true)
+  language   String
+  category   WorkCategory
+  url        String?
+  notes      String?
+  addedByRef String?
+  isActive   Boolean              @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -4621,16 +4750,16 @@ enum VehicleOwnershipStatus {
 /// repayment also writes an INSTALMENT_SWEEP line in the borrower's wallet, so the driver's
 /// statement shows the money leaving for the instalment on the day the bank says it did.
 model LoanRepayment {
-  id        String              @id @default(cuid())
-  loanId    String
-  amountRwf Int
-  paidAt    DateTime
+  id               String              @id @default(cuid())
+  loanId           String
+  amountRwf        Int
+  paidAt           DateTime
   /// The lender's own reference for the receipt / standing-order line. Unique per loan.
-  reference String
-  source    LoanRepaymentSource
+  reference        String
+  source           LoanRepaymentSource
   recordedByUserId String?
-  note      String?
-  createdAt DateTime @default(now())
+  note             String?
+  createdAt        DateTime            @default(now())
 
   loan Loan @relation(fields: [loanId], references: [id], onDelete: Restrict)
 
@@ -4677,9 +4806,9 @@ model LoanVehicle {
 /// per loan: a re-upload replaces the file reference, it does not create a second row,
 /// since there is only ever one live comfort letter for a given loan.
 model LoanComfortLetter {
-  id       String @id @default(cuid())
-  loanId   String @unique
-  fileUrl  String
+  id            String   @id @default(cuid())
+  loanId        String   @unique
+  fileUrl       String
   /// Bank staff userId — this is the bank's own signed document, not UZA's.
   uploadedByRef String
   uploadedAt    DateTime @default(now())
@@ -4699,7 +4828,7 @@ model LoanComfortLetter {
 /// without a trace of what they were before -- the same reasoning LenderDecision already
 /// documents for credit decisions.
 model LoanTenorChange {
-  id              String   @id @default(cuid())
+  id              String  @id @default(cuid())
   loanId          String
   fromTenorMonths Int
   toTenorMonths   Int
@@ -4741,25 +4870,25 @@ enum LoanChangeRequestStatus {
 /// everyone with a stake in the loan is notified -- see NotificationType.TASK_ASSIGNED
 /// and LoanChangeRequestService for the notify-on-change wiring.
 model LoanChangeRequest {
-  id                 String                   @id @default(cuid())
-  loanId             String
-  requestedByUserId  String
-  changeType         LoanChangeType
+  id                String                  @id @default(cuid())
+  loanId            String
+  requestedByUserId String
+  changeType        LoanChangeType
   /// Shape depends on changeType: { toTenorMonths } | { contributionRwf } | { vehiclePriceRwf }
-  payload            Json
-  note               String?
-  status             LoanChangeRequestStatus  @default(PENDING)
-  reviewedByUserId   String?
-  reviewedAt         DateTime?
-  reviewNote         String?
-  appliedAt          DateTime?
+  payload           Json
+  note              String?
+  status            LoanChangeRequestStatus @default(PENDING)
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+  reviewNote        String?
+  appliedAt         DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  loan         Loan  @relation(fields: [loanId], references: [id], onDelete: Cascade)
-  requestedBy  User  @relation("LoanChangeRequestedBy", fields: [requestedByUserId], references: [id])
-  reviewedBy   User? @relation("LoanChangeReviewedBy", fields: [reviewedByUserId], references: [id])
+  loan        Loan  @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  requestedBy User  @relation("LoanChangeRequestedBy", fields: [requestedByUserId], references: [id])
+  reviewedBy  User? @relation("LoanChangeReviewedBy", fields: [reviewedByUserId], references: [id])
 
   @@index([loanId, status])
   @@map("loan_change_requests")

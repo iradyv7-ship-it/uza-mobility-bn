@@ -25,11 +25,13 @@ import { FleetModule } from './modules/fleet/fleet.module';
 import { PartsModule } from './modules/parts/parts.module';
 import { EnergyModule } from './modules/energy/energy.module';
 import { SellersModule } from './modules/sellers/sellers.module';
+import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { PromotionsModule } from './modules/promotions/promotions.module';
 import { SustainabilityModule } from './modules/sustainability/sustainability.module';
 import { FinancingModule } from './modules/financing/financing.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { BankFilesModule } from './modules/bank-files/bank-files.module';
+import { AllocationModule } from './modules/allocation/allocation.module';
 import { InquiriesModule } from './modules/inquiries/inquiries.module';
 import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 import { ChargingStationsModule } from './modules/charging-stations/charging-stations.module';
@@ -101,11 +103,13 @@ import { validateEnv } from './config/env.validation';
     PartsModule,
     EnergyModule,
     SellersModule,
+    SuppliersModule,
     PromotionsModule,
     SustainabilityModule,
     FinancingModule,
     BookingsModule,
     BankFilesModule,
+    AllocationModule,
     InquiriesModule,
     PlatformSettingsModule,
     ChargingStationsModule,

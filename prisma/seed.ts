@@ -6,6 +6,7 @@ import { seedCategories } from './seed-categories';
 import { seedListings } from './seed-listings';
 import { seedPlatformSettings } from './seed-platform-settings';
 import { seedPricingRules } from './seed-pricing-rules';
+import { seedSuppliers } from './seed-suppliers';
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({
@@ -258,6 +259,11 @@ async function seedPermissionsAndRoleMappings() {
       'LENDER_NCBA',
       // Records attendance and assessments in the academy. Checked by name.
       'TRAINER',
+      // A supplier's own login. The role says "this is a counterparty account"; the
+      // CounterpartyAccess row says WHICH counterparty, and without one this role grants
+      // nothing at all. MUST exist before anyone can register through
+      // POST /suppliers/register, which connects the new user to it by name.
+      'SUPPLIER_PORTAL',
     ].map((name) => ensureRole(name, `Seed role: ${name}`)),
   );
 }
@@ -499,6 +505,7 @@ async function main() {
   await seedPlatformSettings(prisma);
   await seedListings(prisma);
   await seedLenderBanks();
+  await seedSuppliers(prisma);
 
   console.log('✅ Prisma seed completed');
 }
