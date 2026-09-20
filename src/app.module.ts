@@ -38,6 +38,8 @@ import { PlatformSettingsModule } from './modules/platform-settings/platform-set
 import { ChargingStationsModule } from './modules/charging-stations/charging-stations.module';
 import { WorkshopModule } from './modules/workshop/workshop.module';
 import { AcademyModule } from './modules/academy/academy.module';
+import { UzaIdentityModule } from './modules/uza-identity/uza-identity.module';
+import { CandidateJourneyModule } from './modules/candidate-journey/candidate-journey.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { ImpactModule } from './modules/impact/impact.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -117,6 +119,8 @@ import { validateEnv } from './config/env.validation';
     ChargingStationsModule,
     WorkshopModule,
     AcademyModule,
+    UzaIdentityModule,
+    CandidateJourneyModule,
     WalletModule,
     ImpactModule,
   ],

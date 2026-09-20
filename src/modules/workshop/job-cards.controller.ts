@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -23,5 +23,19 @@ export class JobCardsController {
   @ApiOperation({ summary: 'Open job cards, most urgent first' })
   list() {
     return this.workshopService.listJobCards();
+  }
+
+  /**
+   * The counter lookup. `uzaId` comes back null for a walk-in who is not a programme
+   * participant, which is the honest answer — this route resolves an identifier, it never
+   * issues one.
+   */
+  @Get(':reference/client-identity')
+  @ApiOperation({
+    summary:
+      "This job card's customer as a UZA ID, with the keys other UZA systems hold for the same person",
+  })
+  clientIdentity(@Param('reference') reference: string) {
+    return this.workshopService.jobCardClientIdentity(reference);
   }
 }

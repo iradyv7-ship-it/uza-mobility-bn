@@ -7,6 +7,7 @@ import { JobCardsController } from './job-cards.controller';
 import { MechanicsController } from './mechanics.controller';
 import { RescueController } from './rescue.controller';
 import { TrainingCoursesController } from './training-courses.controller';
+import { UzaIdentityModule } from '../uza-identity/uza-identity.module';
 import { WorkshopService } from './workshop.service';
 
 /**
@@ -29,9 +30,14 @@ import { WorkshopService } from './workshop.service';
  * write surface nobody asked for is exactly the kind of scope creep the project's
  * "no fake completion" rule warns against. The state machine, dispatch and KPI functions
  * are all already imported and ready for that follow-up.
+ *
+ * `UzaIdentityModule` was added in September so the counter can answer "who is this
+ * person, in the terms the rest of UZA uses" — `GET /workshop/job-cards/:reference/
+ * client-identity`. It is a read dependency only; the workshop resolves a UZA ID and never
+ * issues one.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, UzaIdentityModule],
   controllers: [
     JobCardsController,
     MechanicsController,

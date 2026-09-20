@@ -23,6 +23,7 @@ import {
   type InspectionFinding,
 } from './inspection.rules';
 import { nextInspectionDue } from './inspection-economics';
+import { UzaIdentityService } from '../uza-identity/uza-identity.service';
 
 /**
  * Read-side of the workshop. See `workshop.module.ts` for what this deliberately does
@@ -34,7 +35,62 @@ export class WorkshopService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly identity: UzaIdentityService,
   ) {}
+
+  /**
+   * Who is this job card's customer, in the terms every other UZA system uses?
+   *
+   * The founder's stated goal for the August identity migration was that "the ID can be
+   * recoverable when the client visits the garage" — this is that lookup. A read helper,
+   * deliberately: it resolves, it never issues. A mechanic opening a job card for a
+   * walk-in should see `uzaId: null` and know this person is not in the programme, rather
+   * than have an identifier minted for them at the counter.
+   *
+   * `identityLinks` comes back with it so the counter can also see the keys other systems
+   * hold for the same person — the charging network's driver id, Nexus's contact — which
+   * is the point of `identity_links` and the reason this returns the person rather than a
+   * bare string.
+   */
+  async jobCardClientIdentity(reference: string) {
+    const jobCard = await this.prisma.jobCard.findUnique({
+      where: { reference: reference.trim() },
+      select: {
+        id: true,
+        reference: true,
+        vehiclePlate: true,
+        vin: true,
+        state: true,
+        customerUserId: true,
+      },
+    });
+    if (!jobCard)
+      throw new NotFoundException('No job card with that reference.');
+
+    if (!jobCard.customerUserId) {
+      return {
+        jobCard,
+        uzaId: null,
+        person: null,
+        identityLinks: [],
+        note: 'This job card has no customer account attached, so there is no UZA ID to resolve.',
+      };
+    }
+
+    const uzaId = await this.identity.uzaIdForUser(jobCard.customerUserId);
+    if (!uzaId) {
+      return {
+        jobCard,
+        uzaId: null,
+        person: null,
+        identityLinks: [],
+        note: 'This customer has no UZA ID. They are not a programme participant; issuing one is an intake decision, not a workshop one.',
+      };
+    }
+
+    const { person, links } = await this.identity.linksFor(uzaId);
+    return { jobCard, uzaId, person, identityLinks: links, note: null };
+  }
 
   /**
    * Job cards, most urgent first — `buildBoard()` from workshop-board.ts decides the
