@@ -15,6 +15,8 @@ import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 import { RbacService } from './rbac.service';
 import { UsersModule } from '../../users/users.module';
 import { MailModule } from '../../common/mail/mail.module';
+import { StaffAccessService } from './staff-access.service';
+import { StaffInvitesController } from './staff-invites.controller';
 
 @Module({
   imports: [
@@ -37,9 +39,10 @@ import { MailModule } from '../../common/mail/mail.module';
       },
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, StaffInvitesController],
   providers: [
     AuthService,
+    StaffAccessService,
     GoogleOAuthService,
     RbacService,
     JwtStrategy,

@@ -43,6 +43,11 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { MessageResponseDto } from './dto/message-response.dto';
 import { AuthService } from './auth.service';
+import { StaffAccessService } from './staff-access.service';
+import {
+  RedeemStaffInviteDto,
+  VerifyAdminLoginDto,
+} from './dto/staff-access.dto';
 import { UsersService } from '../../users/users.service';
 import { UpdateUserDto } from '../../users/dto/update-user.dto';
 import { extractBearerToken } from './utils/extract-bearer-token.util';
@@ -57,6 +62,7 @@ export class AuthController {
     private readonly googleOAuthService: GoogleOAuthService,
     private readonly usersService: UsersService,
     private readonly storage: StorageService,
+    private readonly staffAccess: StaffAccessService,
   ) {}
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
@@ -174,6 +180,41 @@ export class AuthController {
   @ApiOkResponse({ type: AuthResponseDto })
   loginAdmin(@Body() dto: LoginDto, @Req() request: Request) {
     return this.authService.loginAdmin(dto, getRequestAuditContext(request));
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('admin/login/verify')
+  @Public()
+  @SkipAudit()
+  @ApiOperation({
+    summary:
+      'Second step of an admin sign-in: the one-time code from the email, in exchange for tokens',
+  })
+  @ApiOkResponse({ type: AuthResponseDto })
+  verifyAdminLogin(
+    @Body() dto: VerifyAdminLoginDto,
+    @Req() request: Request,
+  ) {
+    return this.authService.verifyAdminLogin(
+      dto.challengeId,
+      dto.code,
+      getRequestAuditContext(request),
+    );
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('staff-invites/redeem')
+  @ApiOperation({
+    summary:
+      'Redeem a staff access code from the signed-in account; grants the invited roles once',
+  })
+  redeemStaffInvite(
+    @Body() dto: RedeemStaffInviteDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const userId = request.user?.sub;
+    if (!userId) throw new UnauthorizedException();
+    return this.staffAccess.redeemInvite(userId, dto.code);
   }
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })

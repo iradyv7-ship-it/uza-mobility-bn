@@ -10,6 +10,7 @@ import { AuthTokenType, SellerType } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { randomBytes } from 'crypto';
+import { StaffAccessService } from './staff-access.service';
 import { compareSync, genSaltSync, hashSync } from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -65,6 +66,7 @@ export class AuthService {
     private readonly auditService: AuditService,
     private readonly mailService: MailService,
     private readonly moduleRef: ModuleRef,
+    private readonly staffAccess: StaffAccessService,
   ) {}
 
   async register(
@@ -245,14 +247,62 @@ export class AuthService {
     return tokens;
   }
 
-  async loginAdmin(
-    dto: LoginDto,
+  /**
+   * Step one of an admin sign-in. A correct password does not issue tokens; it opens a
+   * one-time-code challenge delivered to the account's email (StaffAccessService). Step two
+   * is `verifyAdminLogin`. The same wrong-credentials message covers every failure here.
+   */
+  async loginAdmin(dto: LoginDto, auditContext: RequestAuditContext = {}) {
+    const user = await this.authenticate(dto, { adminOnly: true });
+    await this.auditService.record({
+      userId: user.id,
+      action: 'auth:admin-login-challenge',
+      entity: 'User',
+      ipAddress: auditContext.ipAddress,
+      userAgent: auditContext.userAgent,
+      metadata: { email: user.email },
+    });
+    return this.staffAccess.openChallenge({
+      userId: user.id,
+      email: user.email,
+      ipAddress: auditContext.ipAddress,
+      userAgent: auditContext.userAgent,
+    });
+  }
+
+  async verifyAdminLogin(
+    challengeId: string,
+    code: string,
     auditContext: RequestAuditContext = {},
   ): Promise<AuthResponseDto> {
-    return this.authenticateAndIssueTokens(dto, auditContext, {
-      adminOnly: true,
-      auditAction: 'auth:admin-login',
+    const userId = await this.staffAccess.verifyChallenge(challengeId, code);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        roles: { include: { role: true } },
+        sellers: { select: { sellerType: true } },
+        operatorProfile: { select: { id: true } },
+      },
     });
+    if (!user) throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
+    this.assertUserIsActive(user);
+    const roleNames = user.roles.map((r) => r.role.name);
+    const permissions =
+      await this.rbacService.resolvePermissionsForRoleNames(roleNames);
+    if (!hasAdminAccess(roleNames, permissions)) {
+      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
+    }
+    const safeUser = this.usersService.toSafeUser(user);
+    const tokens = await this.issueTokens(safeUser);
+    await this.auditService.record({
+      userId: safeUser.id,
+      action: 'auth:admin-login',
+      entity: 'User',
+      ipAddress: auditContext.ipAddress,
+      userAgent: auditContext.userAgent,
+      metadata: { email: safeUser.email, challengeId },
+    });
+    return tokens;
   }
 
   async refresh(refreshToken: string): Promise<AuthResponseDto> {
@@ -522,6 +572,29 @@ export class AuthService {
       auditAction?: string;
     } = {},
   ): Promise<AuthResponseDto> {
+    const safeUser = await this.authenticate(dto, options);
+    await this.linkGuestActivityToUser(safeUser.id, safeUser.email);
+    const tokens = await this.issueTokens(safeUser);
+
+    await this.auditService.record({
+      userId: safeUser.id,
+      action: options.auditAction ?? 'auth:login',
+      entity: 'User',
+      ipAddress: auditContext.ipAddress,
+      userAgent: auditContext.userAgent,
+      metadata: {
+        email: safeUser.email,
+      },
+    });
+
+    return tokens;
+  }
+
+  /** Password + account checks + workspace check. Issues nothing. */
+  private async authenticate(
+    dto: LoginDto,
+    options: { adminOnly?: boolean } = {},
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { email: normalizeAuthEmail(dto.email) },
       include: {
@@ -559,22 +632,7 @@ export class AuthService {
       throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
     }
 
-    const safeUser = this.usersService.toSafeUser(user);
-    await this.linkGuestActivityToUser(safeUser.id, safeUser.email);
-    const tokens = await this.issueTokens(safeUser);
-
-    await this.auditService.record({
-      userId: safeUser.id,
-      action: options.auditAction ?? 'auth:login',
-      entity: 'User',
-      ipAddress: auditContext.ipAddress,
-      userAgent: auditContext.userAgent,
-      metadata: {
-        email: safeUser.email,
-      },
-    });
-
-    return tokens;
+    return this.usersService.toSafeUser(user);
   }
 
   private assertUserIsActive(user: {

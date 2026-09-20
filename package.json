@@ -29,6 +29,8 @@
     "express:dev": "ts-node -r tsconfig-paths/register express-backend/src/server.ts",
     "express:typecheck": "tsc --noEmit -p express-backend/tsconfig.json",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --max-warnings=0",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify:all": "npm run typecheck && npm run lint && npm run test && npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",

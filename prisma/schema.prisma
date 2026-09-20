@@ -80,24 +80,25 @@ model User {
   updatedAt          DateTime  @updatedAt
   deletedAt          DateTime?
 
-  roles             UserRole[]
-  buyerProfile      BuyerProfile?
-  operatorProfile   OperatorProfile?
-  sellers           Seller[]
-  invoices          Invoice[]
-  orders            Order[]
-  financingRequests FinancingRequest[]
-  fleetRequests     FleetRequest[]
-  activityLogs      ActivityLog[]
-  refreshTokens     RefreshToken[]
-  authTokens        AuthToken[]
-  savedListings     SavedListing[]
-  vehicleBookings   VehicleBooking[]
-  inquiries         Inquiry[]
-  notifications     Notification[]
-  listingsCreated   Listing[]          @relation("ListingCreatedBy")
-  stationReviews    StationReview[]
-  identityLinks     IdentityLink[]
+  roles                UserRole[]
+  buyerProfile         BuyerProfile?
+  operatorProfile      OperatorProfile?
+  sellers              Seller[]
+  invoices             Invoice[]
+  orders               Order[]
+  financingRequests    FinancingRequest[]
+  fleetRequests        FleetRequest[]
+  activityLogs         ActivityLog[]
+  refreshTokens        RefreshToken[]
+  authTokens           AuthToken[]
+  adminLoginChallenges AdminLoginChallenge[] @relation("AdminLoginChallenges")
+  savedListings        SavedListing[]
+  vehicleBookings      VehicleBooking[]
+  inquiries            Inquiry[]
+  notifications        Notification[]
+  listingsCreated      Listing[]             @relation("ListingCreatedBy")
+  stationReviews       StationReview[]
+  identityLinks        IdentityLink[]
 
   // --- Tunga Taxi programme (backend pack, applied 22 August 2026) ---
   wallet            Wallet?
@@ -2119,6 +2120,49 @@ enum ContributionCreditSource {
   GRANT // a funder or partner contribution earmarked for this driver
   PARTNER // a cooperative, employer or family contribution routed through UZA
   ADJUSTMENT // a correction; always with a reason
+}
+
+/// A one-time code that is the ONLY way a role is granted to someone who signed themselves
+/// up (Google or password). Issued by a super admin to a named email, redeemed once, by that
+/// email, within its window. Without a redeemed invite, a self-registered account is a client
+/// and nothing else — which is what makes the staff surfaces exclusive to employees.
+model StaffInvite {
+  id              String    @id @default(cuid())
+  /// Lower-cased; the redeemer's account email must match exactly.
+  email           String
+  /// Role names to grant on redemption (e.g. ["INTAKE_OFFICER"]).
+  roles           String[]
+  /// sha256 of the raw code. The raw code is shown once to the issuer and emailed if mail is on.
+  codeHash        String    @unique
+  note            String?
+  expiresAt       DateTime
+  createdByUserId String
+  createdAt       DateTime  @default(now())
+  usedAt          DateTime?
+  usedByUserId    String?
+  revokedAt       DateTime?
+
+  @@index([email])
+  @@map("staff_invites")
+}
+
+/// The second step of an admin sign-in: a six-digit code sent to the account's email, valid
+/// for ten minutes and five attempts. A password alone never opens the admin panel.
+model AdminLoginChallenge {
+  id         String    @id @default(cuid())
+  userId     String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+
+  user User @relation("AdminLoginChallenges", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("admin_login_challenges")
 }
 
 model Wallet {
@@ -5180,9 +5224,9 @@ model DriverInterestLead {
   preferredVehicleType DriverInterestVehicleType?
   message              String?
 
-  status        DriverInterestStatus @default(NEW)
-  contactedAt   DateTime?
-  contactedById String?
+  status            DriverInterestStatus @default(NEW)
+  contactedAt       DateTime?
+  contactedById     String?
   /// Set once staff starts the real FundApplication with this person.
   fundApplicationId String?
 
