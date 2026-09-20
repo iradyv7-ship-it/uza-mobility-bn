@@ -200,7 +200,7 @@ export class FundApplicationService {
     if (!app) throw new NotFoundException('No such application.');
 
     // The required contribution comes from the vehicle's price through the band Unguka
-    // confirmed (10% ≤ RWF 25M, 15% above) — the same rule the support plan uses — when a
+    // agreed (10% of price; Unguka extended it to the BYDs on 20 Sept 2026) — the same rule the support plan uses — when a
     // price is known. An explicit override still wins for what-if screening. The flat
     // default remains only for an application with no vehicle priced yet.
     let required = DEFAULT_REQUIRED_CONTRIBUTION_RWF;

@@ -11,10 +11,12 @@ import { quoteLoan, UNGUKA_RATE_BANDS } from './loan-terms';
  *
  * ── THE RULES, WITH THEIR SOURCE ──────────────────────────────────────────────────────
  *
- *  Contribution band     Vehicle at or below RWF 25,000,000 → 10% of price.
- *                        Above RWF 25,000,000 → 15%.
- *                        Confirmed by Unguka's Tunga Taxi contact, 19 August 2026, in a live
- *                        meeting. Treated as policy. (`unguka-portal` memory; `07-evidence-base`)
+ *  Contribution band     10% of price, at every price. Unguka's 19 August 2026 position was
+ *                        10% at or below RWF 25,000,000 and 15% above; on 20 September 2026
+ *                        the bank agreed 10% for the BYD Yuan Ups (29.2–31.5M) as well — Yves.
+ *                        The threshold and the 15% constant are kept so the earlier position
+ *                        stays legible; `contributionBandPct` now returns 10 throughout.
+ *                        (`07-evidence-base`, `09` D0x)
  *
  *  Driver minimum        The part of the contribution that must be the driver's own money —
  *                        a programme rule, not the bank's. Below it, UZA does not top up: the
@@ -49,7 +51,7 @@ export const DRIVER_MINIMUM_RWF = COHORT1_DRIVER_MINIMUM_RWF;
 
 /**
  * The suggested minimum the client brings themselves, by vehicle price. Shown on every
- * option next to the expected 10% (or 15%) contribution, so a driver choosing between a
+ * option next to the expected 10% contribution, so a driver choosing between a
  * RWF 18.5M E70 and a RWF 31.5M Yuan Up sees both numbers move together.
  */
 export function driverMinimumRwf(vehiclePriceRwf: number): number {
@@ -59,10 +61,17 @@ export function driverMinimumRwf(vehiclePriceRwf: number): number {
   return 2_500_000;
 }
 
-export function contributionBandPct(vehiclePriceRwf: number): number {
+/** Kept for history: Unguka's pre-20-September position. Not applied. */
+export function contributionBandPctBefore20Sept2026(
+  vehiclePriceRwf: number,
+): number {
   return vehiclePriceRwf <= BAND_THRESHOLD_RWF
     ? LOWER_BAND_PCT
     : UPPER_BAND_PCT;
+}
+
+export function contributionBandPct(_vehiclePriceRwf: number): number {
+  return LOWER_BAND_PCT;
 }
 
 export function requiredContributionRwf(vehiclePriceRwf: number): number {
@@ -367,7 +376,7 @@ export function planSupport(inputs: readonly SupportRowInput[]): SupportPlan {
       facilityRwf: sum((r) => r.facilityRwf),
     },
     assumptions: [
-      `Contribution band: ${LOWER_BAND_PCT}% at or below RWF ${BAND_THRESHOLD_RWF.toLocaleString('en-RW')}, ${UPPER_BAND_PCT}% above (Unguka, confirmed 19 Aug 2026).`,
+      `Contribution band: ${LOWER_BAND_PCT}% of price at every price (Unguka agreed 10% for the BYD Yuan Ups too, 20 Sept 2026; the 15% band above RWF ${BAND_THRESHOLD_RWF.toLocaleString('en-RW')} no longer applies).`,
       'Driver minimum stake, by vehicle price: under 20M → 1M; 20–25M → 1.5M; 25–30M → 2M; over 30M → 2.5M (programme rule, 20 Sept 2026). Cohort 1 rows may carry a grandfathered 500k.',
       'Instalments quoted on the Unguka bands (34% p.a. to 36 months, 36% p.a. to 60), reducing balance, 30-day months, rounded up daily. Displayed as cost per day, never as a rate, per Unguka.',
       'Insurance not included. Comprehensive at 5.5% of value per year is a lender requirement and can be cash or financed; see the pitch portal for both modes.',

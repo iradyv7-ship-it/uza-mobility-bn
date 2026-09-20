@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import {
   contributionBandPct,
+  contributionBandPctBefore20Sept2026,
   mapHeader,
   parseCsv,
   planRow,
@@ -17,16 +18,21 @@ import {
  */
 
 describe('the contribution band', () => {
-  it('is 10% at or below RWF 25M and 15% above — the boundary is inclusive', () => {
+  it('is 10% at every price since 20 Sept 2026 — the bank agreed 10% for the BYD Yuan Ups too', () => {
     expect(contributionBandPct(23_500_000)).toBe(10);
     expect(contributionBandPct(25_000_000)).toBe(10);
-    expect(contributionBandPct(25_000_001)).toBe(15);
-    expect(contributionBandPct(31_500_000)).toBe(15);
+    expect(contributionBandPct(25_000_001)).toBe(10);
+    expect(contributionBandPct(31_500_000)).toBe(10);
   });
 
-  it('reproduces the portal reference figures to the franc', () => {
+  it('keeps the pre-20-September position legible, unapplied', () => {
+    expect(contributionBandPctBefore20Sept2026(25_000_000)).toBe(10);
+    expect(contributionBandPctBefore20Sept2026(25_000_001)).toBe(15);
+  });
+
+  it('reproduces the reference figures to the franc', () => {
     expect(requiredContributionRwf(23_500_000)).toBe(2_350_000); // Neta U Pro 2022
-    expect(requiredContributionRwf(31_500_000)).toBe(4_725_000); // BYD Yuan Up 2025
+    expect(requiredContributionRwf(31_500_000)).toBe(3_150_000); // BYD Yuan Up 2025, at 10%
   });
 });
 
@@ -179,7 +185,7 @@ describe('a cohort', () => {
     expect(plan.totals.eligibleForSupport).toBe(2);
     // Support is sized from the applicable minimum for the two below it.
     expect(plan.totals.uzaSupportRwf).toBe(
-      850_000 + 850_000 + (4_725_000 - 2_500_000) + 850_000,
+      850_000 + 850_000 + (3_150_000 - 2_500_000) + 850_000,
     );
     expect(plan.assumptions.some((a) => /not a credit decision/.test(a))).toBe(
       true,
