@@ -126,6 +126,7 @@ model User {
   @@index([uzaId])
   @@map("users")
   fundApplicationDocuments FundApplicationDocument[] @relation("FundApplicationDocumentUploader")
+  contributionCredits ContributionCredit[] @relation("ContributionCredits")
 }
 
 model UserRole {
@@ -2084,6 +2085,42 @@ enum LedgerReason {
 /// It is a mutable balance with no ledger behind it. Do not build a second one
 /// beside it — see 06-uza-charge-join.sql section 3b for the two options and
 /// the decision that has to be made before any ledger code is written.
+/// A credit UZA grants toward a driver's contribution (the "10%") that is not the driver's
+/// own cash: the earn-in share of a placement fee, a partner or funder grant, a correction.
+///
+/// This is UZA's own promise, recorded — never client money held by UZA, which is why it is
+/// NOT a ledger line: the ledger is the driver's own account at the institution, and a credit
+/// that exists only in UZA's books must never be shown as a balance the driver could withdraw.
+/// The wallet shows it beside the driver's savings, labelled, so a driver with nothing in the
+/// bank on day one still sees the bar move for every shift they drive.
+model ContributionCredit {
+  id        String                   @id @default(cuid())
+  userId    String
+  amountRwf Int
+  source    ContributionCreditSource
+  /// Why, in words a driver and an auditor both understand.
+  reason    String
+  /// Idempotency handle per user: a placement week, a grant reference. Never credited twice.
+  reference String?
+  grantedByUserId String
+  grantedAt DateTime  @default(now())
+  revokedAt     DateTime?
+  revokedReason String?
+
+  user User @relation("ContributionCredits", fields: [userId], references: [id])
+
+  @@unique([userId, reference])
+  @@index([userId, grantedAt])
+  @@map("contribution_credits")
+}
+
+enum ContributionCreditSource {
+  EARN_IN // the agreed share of a placement/rental fee, credited toward the purchase
+  GRANT // a funder or partner contribution earmarked for this driver
+  PARTNER // a cooperative, employer or family contribution routed through UZA
+  ADJUSTMENT // a correction; always with a reason
+}
+
 model Wallet {
   id     String       @id @default(cuid())
   userId String       @unique

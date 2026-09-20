@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   assertAllocationAllowed,
   bucketBalances,
+  contributionProgress,
   momoIdempotencyKey,
   performance,
   splitDeposit,
@@ -191,5 +192,30 @@ describe('the MoMo idempotency key', () => {
     expect(momoIdempotencyKey(' 12345678901 ')).toBe('momo:12345678901');
     expect(momoIdempotencyKey('abc 123 456')).toBe('momo:ABC123456');
     expect(() => momoIdempotencyKey('12')).toThrow(/confirmation SMS/);
+  });
+});
+
+describe('the road to the contribution', () => {
+  it('counts confirmed deposits and UZA credit apart, and never lets an instalment sweep pull the contribution down', () => {
+    const lines: LedgerLine[] = [
+      credit('LOAN', 30_000, 3),
+      credit('CHARGING', 5_000, 2),
+      credit('LOAN', 30_000, 1, false), // pending: not yet counted
+      credit('PERSONAL', 100_000, 1), // theirs; not the contribution
+      {
+        ...credit('LOAN', 700_000, 0),
+        direction: 'DEBIT',
+        reason: 'INSTALMENT_SWEEP',
+        recordedBy: 'INSTITUTION',
+      },
+    ];
+    const p = performance(lines, 30_000, 2_280_000, NOW);
+    const c = contributionProgress(p, lines, 2_280_000, 320_000);
+    expect(c.savedRwf).toBe(35_000);
+    expect(c.creditRwf).toBe(320_000);
+    expect(c.totalRwf).toBe(355_000);
+    expect(c.remainingRwf).toBe(1_925_000);
+    expect(c.pct).toBe(15.6);
+    expect(c.workingDaysToTarget).toBeGreaterThan(0);
   });
 });

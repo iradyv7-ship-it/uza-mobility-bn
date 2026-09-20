@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AllocateDto } from './dto/allocate.dto';
 import type { ConfirmDepositDto } from './dto/confirm-deposit.dto';
 import type { OpenWalletDto } from './dto/open-wallet.dto';
+import type { GrantCreditDto } from './dto/grant-credit.dto';
 import type { RecordDepositDto } from './dto/record-deposit.dto';
 import type { SetSplitDto } from './dto/set-split.dto';
 import {
@@ -20,6 +21,7 @@ import {
   bucketBalances,
   momoIdempotencyKey,
   performance,
+  contributionProgress,
   splitDeposit,
   type Bucket,
   type LedgerLine,
@@ -119,8 +121,27 @@ export class WalletService {
         activatedAt: true,
       },
     });
+    const credits = await this.activeCredits(userId);
+    const contribution = contributionProgress(
+      perf,
+      lines,
+      w.contributionTargetRwf,
+      credits.reduce((t, c) => t + c.amountRwf, 0),
+    );
 
     return {
+      // The road to the 10%: the driver's own savings and UZA's credits toward it, side by
+      // side, with an honest estimate of how many working days remain at the current pace.
+      contribution: {
+        ...contribution,
+        credits: credits.slice(0, 10).map((c) => ({
+          id: c.id,
+          amountRwf: c.amountRwf,
+          source: c.source,
+          reason: c.reason,
+          grantedAt: c.grantedAt,
+        })),
+      },
       whoseMoney: {
         // Said on every screen. Compliance and trust are the same sentence here.
         statement: `This is your money, in your own account at ${w.institutionName ?? 'your bank'}${w.institutionAccountMasked ? ` (${w.institutionAccountMasked})` : ''}. UZA does not hold it. UZA shows it to you and, with your consent, to your lender.`,
@@ -546,6 +567,77 @@ export class WalletService {
       windowDays: perf.windowDays,
       progressPct: perf.progressPct,
       last30: perf.daily.slice(-30),
+      // Savings and UZA credit shown apart: a lender must never read a credit as cash.
+      contribution: contributionProgress(
+        perf,
+        lines,
+        w.contributionTargetRwf,
+        (await this.activeCredits(userId)).reduce((t, c) => t + c.amountRwf, 0),
+      ),
     };
+  }
+
+  // ── Credits toward the contribution ──────────────────────────────────────────────────
+
+  private activeCredits(userId: string) {
+    return this.prisma.contributionCredit.findMany({
+      where: { userId, revokedAt: null },
+      orderBy: { grantedAt: 'desc' },
+    });
+  }
+
+  /**
+   * Grant a credit toward a driver's contribution — the earn-in share of a placement fee, a
+   * funder's grant. UZA's own promise, never held money, so it is not a ledger line and never
+   * a withdrawable balance. Idempotent on (driver, reference).
+   */
+  async grantCredit(
+    staffUserId: string,
+    uzaId: string,
+    dto: GrantCreditDto,
+    ctx: RequestAuditContext = {},
+  ) {
+    const { user } = await this.walletForUzaId(uzaId);
+    const reference = dto.reference?.trim() || null;
+    if (reference) {
+      const existing = await this.prisma.contributionCredit.findUnique({
+        where: { userId_reference: { userId: user.id, reference } },
+      });
+      if (existing) return { credit: existing, duplicate: true };
+    }
+    const credit = await this.prisma.contributionCredit.create({
+      data: {
+        userId: user.id,
+        amountRwf: dto.amountRwf,
+        source: dto.source,
+        reason: dto.reason.trim(),
+        reference,
+        grantedByUserId: staffUserId,
+      },
+    });
+    await this.auditService.record({
+      userId: staffUserId,
+      action: 'wallet:credit-granted',
+      entity: 'ContributionCredit',
+      entityId: credit.id,
+      metadata: {
+        uzaId: user.uzaId,
+        amountRwf: dto.amountRwf,
+        source: dto.source,
+        reason: credit.reason,
+        reference,
+      },
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
+    return { credit, duplicate: false };
+  }
+
+  async creditsForStaff(uzaId: string) {
+    const { user } = await this.walletForUzaId(uzaId);
+    return this.prisma.contributionCredit.findMany({
+      where: { userId: user.id },
+      orderBy: { grantedAt: 'desc' },
+    });
   }
 }

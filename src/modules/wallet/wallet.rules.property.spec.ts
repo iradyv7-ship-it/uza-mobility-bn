@@ -4,6 +4,7 @@ import {
   assertAllocationAllowed,
   BUCKETS,
   bucketBalances,
+  contributionProgress,
   performance,
   splitDeposit,
   type Bucket,
@@ -429,6 +430,69 @@ describe('assertAllocationAllowed — properties', () => {
               'STAFF',
             ),
           ).toThrow();
+        },
+      ),
+      RUNS,
+    );
+  });
+});
+
+describe('contributionProgress — properties', () => {
+  const creditArb = fc.integer({ min: 0, max: 5_000_000 });
+  const targetArb = fc.oneof(
+    fc.constant(null),
+    fc.integer({ min: 100_000, max: 5_000_000 }),
+  );
+
+  it('savings and credit are shown apart and add up to the total; nothing is ever negative', () => {
+    fc.assert(
+      fc.property(linesArb, targetArb, creditArb, (lines, target, credit) => {
+        const p = performance(lines, 30_000, target, NOW);
+        const c = contributionProgress(p, lines, target, credit);
+        expect(c.savedRwf).toBeGreaterThanOrEqual(0);
+        expect(c.creditRwf).toBe(credit);
+        expect(c.totalRwf).toBe(c.savedRwf + c.creditRwf);
+        if (target == null) {
+          expect(c.pct).toBeNull();
+          expect(c.remainingRwf).toBeNull();
+        } else {
+          expect(c.pct).toBeGreaterThanOrEqual(0);
+          expect(c.pct).toBeLessThanOrEqual(100);
+          expect(c.remainingRwf).toBe(Math.max(0, target - c.totalRwf));
+        }
+      }),
+      RUNS,
+    );
+  });
+
+  it('a credit never changes what the driver saved — only the total and the remaining', () => {
+    fc.assert(
+      fc.property(linesArb, targetArb, creditArb, (lines, target, credit) => {
+        const p = performance(lines, 30_000, target, NOW);
+        const without = contributionProgress(p, lines, target, 0);
+        const withCredit = contributionProgress(p, lines, target, credit);
+        expect(withCredit.savedRwf).toBe(without.savedRwf);
+        expect(withCredit.totalRwf - without.totalRwf).toBe(credit);
+        if (target != null)
+          expect(withCredit.remainingRwf!).toBeLessThanOrEqual(
+            without.remainingRwf!,
+          );
+      }),
+      RUNS,
+    );
+  });
+
+  it('the estimate is honest: no pace means no estimate, and reaching the target means zero days', () => {
+    fc.assert(
+      fc.property(
+        targetArb.filter((t) => t != null),
+        (target) => {
+          const p = performance([], 30_000, target, NOW);
+          const noPace = contributionProgress(p, [], target, 0);
+          expect(noPace.workingDaysToTarget).toBeNull();
+          const done = contributionProgress(p, [], target, target);
+          expect(done.workingDaysToTarget).toBe(0);
+          expect(done.pct).toBe(100);
         },
       ),
       RUNS,

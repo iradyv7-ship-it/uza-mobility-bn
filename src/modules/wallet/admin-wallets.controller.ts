@@ -19,6 +19,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { CovenantService } from './covenant.service';
 import { AllocateDto } from './dto/allocate.dto';
 import { ConfirmDepositDto } from './dto/confirm-deposit.dto';
+import { GrantCreditDto } from './dto/grant-credit.dto';
 import { OpenWalletDto } from './dto/open-wallet.dto';
 import { WalletService } from './wallet.service';
 
@@ -59,6 +60,32 @@ export class AdminWalletsController {
   })
   pending(@Query('uzaId') uzaId?: string) {
     return this.wallets.pendingForStaff(uzaId);
+  }
+
+  @Post(':uzaId/credits')
+  @ApiOperation({
+    summary:
+      "Grant a credit toward the driver's contribution (earn-in share of a placement fee, a grant). UZA's promise, not held money; idempotent on reference.",
+  })
+  grantCredit(
+    @Req() req: AuthenticatedRequest,
+    @Param('uzaId') uzaId: string,
+    @Body() dto: GrantCreditDto,
+  ) {
+    return this.wallets.grantCredit(
+      this.me(req),
+      uzaId,
+      dto,
+      getRequestAuditContext(req),
+    );
+  }
+
+  @Get(':uzaId/credits')
+  @ApiOperation({
+    summary: "Every credit granted toward this driver's contribution",
+  })
+  credits(@Param('uzaId') uzaId: string) {
+    return this.wallets.creditsForStaff(uzaId);
   }
 
   @Post('entries/:id/confirm')

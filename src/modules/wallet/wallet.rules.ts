@@ -358,3 +358,71 @@ export function momoIdempotencyKey(momoTransactionId: string): string {
     );
   return `momo:${id}`;
 }
+
+// ── The road to the contribution ───────────────────────────────────────────────────────
+
+export interface ContributionProgress {
+  targetRwf: number | null;
+  /** The driver's own confirmed savings in the loan-facing buckets, net of debits. */
+  savedRwf: number;
+  /** UZA's credits toward the contribution — earn-in, grants — not held money. */
+  creditRwf: number;
+  totalRwf: number;
+  pct: number | null;
+  remainingRwf: number | null;
+  /** At the last 30 days' confirmed pace, how many working days until the target. null = no pace yet. */
+  workingDaysToTarget: number | null;
+}
+
+/**
+ * How far a driver is from the 10%, counting both what they saved and what UZA has credited
+ * toward it — shown side by side, never merged into one number a lender could mistake for
+ * cash. The pace is the last 30 days of confirmed deposits over 26 working days, so a driver
+ * who started this week sees an honest, changing estimate rather than a promise.
+ */
+export function contributionProgress(
+  perf: Pick<Performance, 'daily'>,
+  lines: readonly LedgerLine[],
+  contributionTargetRwf: number | null,
+  creditRwf: number,
+): ContributionProgress {
+  // Instalments swept to the lender are the loan being repaid, not the contribution being
+  // un-saved; they are left out, so a driver's "toward the 10%" never falls because they paid.
+  const savedRwf = lines
+    .filter(
+      (l) =>
+        l.confirmedAt &&
+        l.bucket &&
+        l.bucket !== 'PERSONAL' &&
+        l.reason !== 'INSTALMENT_SWEEP',
+    )
+    .reduce(
+      (t, l) => t + (l.direction === 'CREDIT' ? l.amountRwf : -l.amountRwf),
+      0,
+    );
+  const totalRwf = Math.max(0, savedRwf) + Math.max(0, creditRwf);
+  const target = contributionTargetRwf ?? null;
+  const remainingRwf = target == null ? null : Math.max(0, target - totalRwf);
+  const last30 = perf.daily.slice(-30).reduce((t, d) => t + d.depositedRwf, 0);
+  const paceRwfPerWorkingDay = last30 / 26;
+  const workingDaysToTarget =
+    remainingRwf == null
+      ? null
+      : remainingRwf === 0
+        ? 0
+        : paceRwfPerWorkingDay > 0
+          ? Math.ceil(remainingRwf / paceRwfPerWorkingDay)
+          : null;
+  return {
+    targetRwf: target,
+    savedRwf: Math.max(0, savedRwf),
+    creditRwf: Math.max(0, creditRwf),
+    totalRwf,
+    pct:
+      target && target > 0
+        ? Math.min(100, Math.round((totalRwf / target) * 1000) / 10)
+        : null,
+    remainingRwf,
+    workingDaysToTarget,
+  };
+}
