@@ -96,14 +96,20 @@ verification output before trusting further) — NOT committed, review before me
 - Garage/mechanic public discovery (map or list) — no backend model exists yet.
 - Driver-facing charging/garage map UI in `uza-mobility-fn` — no map library in the
   dependency tree yet.
-- Reconciling Academy vs. Workshop `TrainingCourse` naming overlap. **A third candidate
-  surfaced this session**: `uza-nexus/apps/empower-academy` is a separate, substantial
-  Lovable-built training/certification app (learn modules, final assessment, certificate,
-  a partner portal, a public certificate-verification page) — not yet compared against
-  uza-mobility-bn's own Academy module to determine if it's the same programme, a
-  duplicate, or a genuinely different one (branding suggests "UZA Empower" as a broader
-  workforce programme, possibly not Twara-EV-specific). Needs a dedicated audit before
-  either is built on further.
+- Reconciling Academy vs. Workshop `TrainingCourse` naming overlap remains open.
+  **Resolved, 2026-09-20**: `uza-nexus/apps/empower-academy` is NOT a duplicate of
+  uza-mobility-bn's Academy module — it's the real "UZA Empower" hybrid training/
+  certification brand, already modeling a partner structure (RNP, driving_school, bank,
+  garage, employer partner kinds, each with their own scheduling portal) that matches
+  real Rwandan regulatory reality: RTB (Rwanda TVET Board, replaced WDA in 2020) would be
+  the accreditation body if ever pursued, but no bank requirement or regulation currently
+  demands it — informal in-house training is bankable today (SafeMotos precedent).
+  Recommendation: partner with a named driving school (Apaforme or United Driving School
+  Rwanda) for road-craft/licensing, keep EV-technical + financial-literacy content
+  UZA-authored, and get Paulin/Unguka-LOLC's actual credit-policy answer on whether
+  accredited training is required for loan readiness — the one fact that decides whether
+  RTB accreditation ever belongs on the roadmap. Full research in
+  `.claude/agent-memory/market-scout/` (uza-nexus).
 - A decision on where `uza-move` (the ride-hailing app) belongs long-term — it's real,
   working code sitting in the wrong repo relative to everything else in this plan.
 - The Kigali tourism layer — nothing built, benchmark-only (see item 5 above).
